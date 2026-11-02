@@ -1,0 +1,16 @@
+reel-watcher
+
+This project is a cross-platform port of reel-watcher by Jacob Bruce (https://github.com/jakeb144/reel-watcher), originally released under the MIT License.
+
+Original work:
+Copyright (c) 2026 Jacob Bruce
+
+Port additions:
+Copyright (c) 2026 Chouaib
+
+What changed:
+- Added cross-platform vision model backends: Ollama and OpenAI-compatible local servers (LM Studio, llama.cpp, vLLM), alongside MLX on Apple Silicon.
+- Added cross-platform speech-to-text via faster-whisper (with CUDA and CPU support), alongside mlx-whisper on Apple Silicon.
+- Added cross-platform OCR via RapidOCR (ONNX Runtime), alongside Apple Vision on macOS.
+- Added cross-platform hardware detection (RAM via psutil, NVIDIA GPU VRAM via nvidia-smi).
+- Preserved the original MIT license and attribution.

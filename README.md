@@ -1,9 +1,11 @@
 # reel-watcher
 
+Cross-platform port of [jakeb144/reel-watcher](https://github.com/jakeb144/reel-watcher).
 Made by Jacob Bruce ([Instagram](https://www.instagram.com/itsjakebruce/)).
+Ported to Windows and Linux by Chouaib.
 
 You save reels on Instagram and never go back to them. reel-watcher has an AI
-model on your own Mac watch them for you and write down what each one is: the
+model on your own machine watch them for you and write down what each one is: the
 hook, the format, the on-screen text, the transcript, the editing tricks, any
 "comment WORD and I'll send you X" giveaway, and a one-line verdict on why it
 works. You end up with one searchable JSON file per reel.
@@ -15,27 +17,28 @@ leaves it.
 
 1. Fetches the video (or carousel slides) through Apify, the only network step.
 2. Cuts the video into key frames (hook frames plus one frame after each scene cut).
-3. Reads on-screen text with Apple Vision OCR.
-4. Merges near-duplicate frames, then asks a local vision model about all the
-   unique frames at once, using one labeled contact sheet (this is the speed trick).
-5. Transcribes speech with word timing (mlx-whisper, `large-v3-turbo`, or `whisper-small` on the small setup).
+3. Reads on-screen text with RapidOCR (Apple Vision on a Mac).
+4. Merges near-duplicate frames, then asks a local vision model through Ollama,
+   any OpenAI-compatible local server (LM Studio, llama.cpp, vLLM), or MLX on a Mac
+   about all the unique frames at once, using one labeled contact sheet (this is the speed trick).
+5. Transcribes speech with word timing (faster-whisper, or mlx-whisper on a Mac).
 6. Detects giveaways: "comment X", "DM me X", "link in bio", and what you get.
 7. Writes `study/<code>.json` and a small hook image. With `--archive DIR` it also
    keeps the video and every analyzed frame.
 
 ## Hardware
 
-- Apple Silicon Mac (M1 or newer). It uses MLX and Apple Vision, so Intel, Linux and Windows are not supported.
-- RAM decides the model. `--model-size auto` (the default) picks `small` below 32 GB and `large` otherwise.
+- Windows 10/11, Linux, or macOS.
+- An NVIDIA GPU makes processing much faster; CPU-only works on any machine but is slow (several minutes per reel). Speed numbers are estimates.
+- Model presets and memory sizes:
 
-  | Mac RAM | Setting | Vision model | Whisper | First download |
-  |---|---|---|---|---|
-  | 16 GB | `small` | `Qwen2.5-VL-7B-Instruct-4bit` | `whisper-small-mlx` | about 6 GB |
-  | 32 GB or more | `large` | `Qwen3.6-35B-A3B-4bit` | `whisper-large-v3-turbo` | about 20 GB |
+  | Preset | Ollama | OpenAI-compatible | MLX (Apple Silicon) | Whisper | First download |
+  |---|---|---|---|---|---|
+  | `small` | `qwen2.5vl:7b` | user sets model name | `mlx-community/Qwen2.5-VL-7B-Instruct-4bit` | `small` (or `whisper-small-mlx`) | about 6 GB |
+  | `large` | `qwen2.5vl:32b` | user sets model name | `mlx-community/Qwen3.6-35B-A3B-4bit` | `large-v3-turbo` (or `whisper-large-v3-turbo`) | about 21 GB |
 
-  Force one with `--model-size small|large` or `REEL_WATCHER_MODEL`, or pass any MLX vision model with `--model <hf id>`.
-- Roughly a minute or two of compute per reel, depending on the Mac.
-- `ffmpeg` on PATH (`brew install ffmpeg`) and [uv](https://docs.astral.sh/uv/) (`brew install uv`).
+  `--model-size auto` (the default) picks `large` only with an NVIDIA GPU of 20 GB VRAM or more, or Apple Silicon with 32 GB RAM or more; otherwise `small`.
+  Force a preset with `--model-size small|large` or `REEL_WATCHER_MODEL`.
 
 ## Cost
 
@@ -45,19 +48,98 @@ leaves it.
 - All analysis (OCR, vision model, whisper) is local and free.
 - Without an `APIFY_TOKEN` nothing is downloaded and nothing is charged. Dry run is the default.
 
-## 60-second quickstart
+## Install
+
+Clone the repository:
 
 ```bash
 git clone <this repo> reel-watcher && cd reel-watcher
-brew install ffmpeg uv            # skip what you already have
-uv sync                           # installs MLX, whisper, OCR bindings
+```
 
+### Windows
+
+In PowerShell:
+
+```powershell
+winget install Gyan.FFmpeg
+winget install astral-sh.uv
+# Install Ollama from https://ollama.com, then:
+ollama pull qwen2.5vl:7b
+uv sync
+```
+
+For NVIDIA GPUs, install CUDA runtime packages:
+
+```powershell
+uv sync --extra cuda
+```
+
+### Linux
+
+In bash:
+
+```bash
+sudo apt install ffmpeg
+curl -LsSf https://astral.sh/uv/install.sh | sh
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen2.5vl:7b
+uv sync
+```
+
+For NVIDIA GPUs, install CUDA runtime packages:
+
+```bash
+uv sync --extra cuda
+```
+
+### macOS
+
+In terminal:
+
+```bash
+brew install ffmpeg uv
+# Install Ollama from https://ollama.com, or use MLX:
+ollama pull qwen2.5vl:7b
+uv sync
+```
+
+For Apple Silicon MLX backends:
+
+```bash
+uv sync --extra mac
+```
+
+## 60-second quickstart
+
+```bash
 # 1. Try it on any mp4 you own. No Apify, no account, no cost.
-uv run reel-watcher study --local ~/Movies/some-clip.mp4 --out-root ./out
-cat out/study/some-clip.json
+uv run reel-watcher study --local path/to/clip.mp4 --out-root ./out
+```
 
-# 2. Your saved reels: put a URL list in a file (see "Getting your saved reels"), then
+View the generated report:
+
+```bash
+# Linux / macOS
+cat out/study/clip.json
+
+# Windows (PowerShell)
+Get-Content out\study\clip.json
+```
+
+Set your Apify token (never commit it):
+
+```bash
+# Linux / macOS (bash)
 export APIFY_TOKEN=...            # from console.apify.com, never commit it
+
+# Windows (PowerShell)
+$env:APIFY_TOKEN = "..."          # from console.apify.com, never commit it
+```
+
+Run on saved reels:
+
+```bash
+# 2. Your saved reels: put a URL list in a file (see "Getting your saved reels"), then
 uv run reel-watcher study --input urls.tsv --out-root ./out            # dry run, lists what it would fetch
 uv run reel-watcher study --input urls.tsv --out-root ./out --run --limit 5
 ```
@@ -91,19 +173,46 @@ open an issue if Instagram changed it. HTML exports work too. Any text file with
 |---|---|
 | `--run` | Actually fetch and analyze (default is a dry run) |
 | `--limit N` | Stop after N new reels |
-| `--local A.mp4 B.mp4` | Analyze local files, no network |
+| `--local A.mp4 B.mp4` | Analyze local files: no Apify, no cost |
 | `--archive DIR` | Keep video, frames and manifest per reel in `DIR/<code>/` |
 | `--collections a,b` and `--only-priority` | Do reels from matching collections first (or only) |
-| `--model-size small\|large` | Model preset (default auto by RAM, see Hardware) |
-| `--model ID` | Exact Hugging Face MLX vision model id, overrides the preset |
+| `--backend ollama\|openai\|mlx` | Vision backend (default mlx on Apple Silicon if available, else ollama) |
+| `--model-size small\|large` | Model preset (default auto by hardware, see Hardware) |
+| `--model ID` | Exact vision model name, overrides the preset |
 | `--fast` | Fewer frames and tokens |
 | `--detailed` | One model call per frame (slower, used automatically if the contact-sheet call fails) |
 | `--rollup` | Rebuild `study_index.jsonl` from `study/*.json` |
 
-Environment: `APIFY_TOKEN` (required for `--run`), `REEL_WATCHER_MODEL`, `REEL_WATCHER_VLM`, `REEL_WATCHER_WHISPER`,
-`REEL_WATCHER_CONTEXT` (one phrase describing you, e.g. "a freelance video editor", so the verdict
-speaks to your goals), `REEL_WATCHER_WORKFLOW_RE` (regex of collection names whose reels also get a
-`workflow` field).
+### Environment variables
+
+| Variable | Meaning |
+|---|---|
+| `REEL_WATCHER_BACKEND` | vision backend (`ollama`, `openai`, `mlx`) |
+| `REEL_WATCHER_MODEL` | size preset (`small`, `large`, `auto`) |
+| `REEL_WATCHER_VLM` | exact vision model name for the chosen backend |
+| `OLLAMA_HOST` | Ollama address (default `http://localhost:11434`) |
+| `REEL_WATCHER_OPENAI_BASE` | OpenAI-compatible server URL (default `http://localhost:1234/v1`) |
+| `REEL_WATCHER_OPENAI_KEY` | OpenAI-compatible server API key (optional) |
+| `REEL_WATCHER_ASR` | speech-to-text backend (`faster-whisper`, `mlx`, `auto`) |
+| `REEL_WATCHER_WHISPER` | whisper model name or HF repo ID |
+| `REEL_WATCHER_DEVICE` | compute device for faster-whisper (`auto`, `cuda`, `cpu`) |
+| `REEL_WATCHER_OCR` | OCR backend (`auto`, `apple`, `rapidocr`, `none`) |
+| `APIFY_TOKEN` | Apify token for downloading media |
+| `REEL_WATCHER_CONTEXT` | one phrase describing you (e.g. "a freelance video editor") so the verdict speaks to your goals |
+| `REEL_WATCHER_WORKFLOW_RE` | regex of collection names whose reels also get a `workflow` field |
+
+## Backends
+
+reel-watcher supports three vision backends:
+
+- **Ollama** (default on Windows and Linux): runs locally via `http://localhost:11434`. Pull `qwen2.5vl:7b` (or `qwen2.5vl:32b`).
+- **OpenAI-compatible local server**: works with LM Studio, llama.cpp server, vLLM, or LocalAI. Start your local server and run:
+  ```bash
+  export REEL_WATCHER_OPENAI_BASE="http://localhost:1234/v1"
+  uv run reel-watcher study --backend openai --model "<model-name>" --input urls.tsv --out-root ./out
+  ```
+  Set `REEL_WATCHER_OPENAI_KEY` if your server requires an authorization header. This backend is intended strictly for local servers; do not use it with paid hosted APIs.
+- **MLX** (Apple Silicon only): runs natively using Apple's MLX framework when installed with `uv sync --extra mac`.
 
 ## Output: one study (`out/study/<code>.json`)
 
@@ -167,10 +276,19 @@ It does not call any model. Have your AI assistant build `library.json` from you
 - Giveaway and offer detection is a convenience. Do not use it to mass-comment or spam creators.
 - Model output can hallucinate, including names and quotes. Do not publish it as fact about a person.
 
+## Troubleshooting
+
+- **ffmpeg not found**: If you installed ffmpeg with winget on Windows, close and reopen your terminal so the updated PATH takes effect.
+- **Ollama not running**: Ensure the Ollama background service is active (`ollama serve` or check the system tray icon).
+- **CUDA DLL errors on Windows**: Run `uv sync --extra cuda` to install NVIDIA runtime DLLs, or force CPU mode with `REEL_WATCHER_DEVICE=cpu`.
+- **Out of memory**: Switch to the smaller model preset using `--model-size small`.
+
 ## Development
 
 ```bash
 uv run pytest
 ```
 
-See `AGENTS.md` for the code map. MIT licensed, see `LICENSE`.
+Continuous integration runs tests across Windows, Linux, and macOS.
+See `CONTRIBUTING.md` for guidelines and `AGENTS.md` for the codebase architecture.
+MIT licensed, see `LICENSE` and `NOTICE`.
