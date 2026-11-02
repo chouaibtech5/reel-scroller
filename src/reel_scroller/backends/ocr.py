@@ -26,9 +26,9 @@ def _has_module(name: str) -> bool:
 
 
 def ocr_backend(env: dict | None = None) -> str:
-    """Return 'apple', 'rapidocr', or 'none' based on REEL_WATCHER_OCR and installed packages."""
+    """Return 'apple', 'rapidocr', or 'none' based on REEL_SCROLLER_OCR and installed packages."""
     env = os.environ if env is None else env
-    choice = (env.get("REEL_WATCHER_OCR") or "auto").strip().lower()
+    choice = (env.get("REEL_SCROLLER_OCR") or "auto").strip().lower()
     if choice in ("apple", "rapidocr", "none"):
         return choice
     if choice != "auto":

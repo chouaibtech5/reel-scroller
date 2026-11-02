@@ -1,6 +1,6 @@
-# Agent guide for reel-watcher
+# Agent guide for reel-scroller
 
-reel-watcher analyzes a user's saved Instagram reels with local models. This is the cross-platform port
+reel-scroller analyzes a user's saved Instagram reels with local models. This is the cross-platform port
 (Windows, Linux, macOS) of jakeb144/reel-watcher (MIT, by Jacob Bruce), which was Apple Silicon only.
 Read `README.md` for behavior and the output schema, and `docs/CONTRACT.md` for the backend interfaces.
 
@@ -15,16 +15,16 @@ speech to text via faster-whisper (or mlx-whisper on Mac); OCR via RapidOCR (or 
 ```bash
 uv sync
 uv run pytest                                                   # must pass before and after any change
-uv run reel-watcher study --local clip.mp4 --out-root ./out     # no network except the local model server, no cost
-uv run reel-watcher study --input urls.tsv --out-root ./out     # dry run (default)
-uv run reel-watcher study --input urls.tsv --out-root ./out --run --limit 3
+uv run reel-scroller study --local clip.mp4 --out-root ./out     # no network except the local model server, no cost
+uv run reel-scroller study --input urls.tsv --out-root ./out     # dry run (default)
+uv run reel-scroller study --input urls.tsv --out-root ./out --run --limit 3
 ```
 
-## Code map (`src/reel_watcher/`)
+## Code map (`src/reel_scroller/`)
 
 | File | Role |
 |---|---|
-| `cli.py` | `reel-watcher study|export|advice` dispatcher |
+| `cli.py` | `reel-scroller study|export|advice` dispatcher |
 | `study.py` | The pipeline: Apify fetch, frame sampling, OCR, dedupe, contact-sheet VLM call, whisper, giveaway detection, archive, JSON writing, `main()` |
 | `model.py` | Model-size choice, `parse_json`, `RETRY_HINT`; delegates to `backends/` |
 | `backends/vision.py` | Ollama, OpenAI-compatible and MLX vision backends (`make_vision`) |
@@ -52,7 +52,7 @@ Tests live in `tests/`; they use no network and no models (backends are faked wi
   show the dry run and the count first, start with `--limit 3`, keep the per-batch cap.
 - `APIFY_TOKEN` is read from the environment only. Never write it to a file, a log, a URL or a commit.
 - Never log in to Instagram, use browser cookies, or automate the Instagram UI. Reel URLs come from the
-  user's official data export (`reel-watcher export`) or a plain URL list.
+  user's official data export (`reel-scroller export`) or a plain URL list.
 - Do not commit media, frames, transcripts or study output. No real reel data in tests or examples.
 - Keep analysis local. Do not add a hosted-LLM or paid-API dependency. The `openai` backend is for local
   OpenAI-compatible servers only.

@@ -1,10 +1,10 @@
-# reel-watcher
+# reel-scroller
 
-Cross-platform port of [jakeb144/reel-watcher](https://github.com/jakeb144/reel-watcher).
-Made by Jacob Bruce ([Instagram](https://www.instagram.com/itsjakebruce/)).
+Cross-platform port of [reel-watcher](https://github.com/jakeb144/reel-watcher), the Apple-Silicon-only original.
+The original was made by Jacob Bruce ([Instagram](https://www.instagram.com/itsjakebruce/)).
 Ported to Windows and Linux by Chouaib.
 
-You save reels on Instagram and never go back to them. reel-watcher has an AI
+You save reels on Instagram and never go back to them. reel-scroller has an AI
 model on your own machine watch them for you and write down what each one is: the
 hook, the format, the on-screen text, the transcript, the editing tricks, any
 "comment WORD and I'll send you X" giveaway, and a one-line verdict on why it
@@ -38,7 +38,7 @@ leaves it.
   | `large` | `qwen2.5vl:32b` | user sets model name | `mlx-community/Qwen3.6-35B-A3B-4bit` | `large-v3-turbo` (or `whisper-large-v3-turbo`) | about 21 GB |
 
   `--model-size auto` (the default) picks `large` only with an NVIDIA GPU of 20 GB VRAM or more, or Apple Silicon with 32 GB RAM or more; otherwise `small`.
-  Force a preset with `--model-size small|large` or `REEL_WATCHER_MODEL`.
+  Force a preset with `--model-size small|large` or `REEL_SCROLLER_MODEL`.
 
 ## Cost
 
@@ -53,7 +53,7 @@ leaves it.
 Clone the repository:
 
 ```bash
-git clone <this repo> reel-watcher && cd reel-watcher
+git clone <this repo> reel-scroller && cd reel-scroller
 ```
 
 ### Windows
@@ -113,7 +113,7 @@ uv sync --extra mac
 
 ```bash
 # 1. Try it on any mp4 you own. No Apify, no account, no cost.
-uv run reel-watcher study --local path/to/clip.mp4 --out-root ./out
+uv run reel-scroller study --local path/to/clip.mp4 --out-root ./out
 ```
 
 View the generated report:
@@ -140,8 +140,8 @@ Run on saved reels:
 
 ```bash
 # 2. Your saved reels: put a URL list in a file (see "Getting your saved reels"), then
-uv run reel-watcher study --input urls.tsv --out-root ./out            # dry run, lists what it would fetch
-uv run reel-watcher study --input urls.tsv --out-root ./out --run --limit 5
+uv run reel-scroller study --input urls.tsv --out-root ./out            # dry run, lists what it would fetch
+uv run reel-scroller study --input urls.tsv --out-root ./out --run --limit 5
 ```
 
 The first run downloads the models. Results are resumable: finished reels are skipped,
@@ -158,7 +158,7 @@ Use Instagram's own data download, the safest route because it never touches you
 3. Convert it:
 
 ```bash
-uv run reel-watcher export path/to/saved_posts.json -o urls.tsv
+uv run reel-scroller export path/to/saved_posts.json -o urls.tsv
 ```
 
 The parser walks the JSON and collects every `instagram.com/reel|p|tv/<code>` link, so it tolerates layout
@@ -187,31 +187,31 @@ open an issue if Instagram changed it. HTML exports work too. Any text file with
 
 | Variable | Meaning |
 |---|---|
-| `REEL_WATCHER_BACKEND` | vision backend (`ollama`, `openai`, `mlx`) |
-| `REEL_WATCHER_MODEL` | size preset (`small`, `large`, `auto`) |
-| `REEL_WATCHER_VLM` | exact vision model name for the chosen backend |
+| `REEL_SCROLLER_BACKEND` | vision backend (`ollama`, `openai`, `mlx`) |
+| `REEL_SCROLLER_MODEL` | size preset (`small`, `large`, `auto`) |
+| `REEL_SCROLLER_VLM` | exact vision model name for the chosen backend |
 | `OLLAMA_HOST` | Ollama address (default `http://localhost:11434`) |
-| `REEL_WATCHER_OPENAI_BASE` | OpenAI-compatible server URL (default `http://localhost:1234/v1`) |
-| `REEL_WATCHER_OPENAI_KEY` | OpenAI-compatible server API key (optional) |
-| `REEL_WATCHER_ASR` | speech-to-text backend (`faster-whisper`, `mlx`, `auto`) |
-| `REEL_WATCHER_WHISPER` | whisper model name or HF repo ID |
-| `REEL_WATCHER_DEVICE` | compute device for faster-whisper (`auto`, `cuda`, `cpu`) |
-| `REEL_WATCHER_OCR` | OCR backend (`auto`, `apple`, `rapidocr`, `none`) |
+| `REEL_SCROLLER_OPENAI_BASE` | OpenAI-compatible server URL (default `http://localhost:1234/v1`) |
+| `REEL_SCROLLER_OPENAI_KEY` | OpenAI-compatible server API key (optional) |
+| `REEL_SCROLLER_ASR` | speech-to-text backend (`faster-whisper`, `mlx`, `auto`) |
+| `REEL_SCROLLER_WHISPER` | whisper model name or HF repo ID |
+| `REEL_SCROLLER_DEVICE` | compute device for faster-whisper (`auto`, `cuda`, `cpu`) |
+| `REEL_SCROLLER_OCR` | OCR backend (`auto`, `apple`, `rapidocr`, `none`) |
 | `APIFY_TOKEN` | Apify token for downloading media |
-| `REEL_WATCHER_CONTEXT` | one phrase describing you (e.g. "a freelance video editor") so the verdict speaks to your goals |
-| `REEL_WATCHER_WORKFLOW_RE` | regex of collection names whose reels also get a `workflow` field |
+| `REEL_SCROLLER_CONTEXT` | one phrase describing you (e.g. "a freelance video editor") so the verdict speaks to your goals |
+| `REEL_SCROLLER_WORKFLOW_RE` | regex of collection names whose reels also get a `workflow` field |
 
 ## Backends
 
-reel-watcher supports three vision backends:
+reel-scroller supports three vision backends:
 
 - **Ollama** (default on Windows and Linux): runs locally via `http://localhost:11434`. Pull `qwen2.5vl:7b` (or `qwen2.5vl:32b`).
 - **OpenAI-compatible local server**: works with LM Studio, llama.cpp server, vLLM, or LocalAI. Start your local server and run:
   ```bash
-  export REEL_WATCHER_OPENAI_BASE="http://localhost:1234/v1"
-  uv run reel-watcher study --backend openai --model "<model-name>" --input urls.tsv --out-root ./out
+  export REEL_SCROLLER_OPENAI_BASE="http://localhost:1234/v1"
+  uv run reel-scroller study --backend openai --model "<model-name>" --input urls.tsv --out-root ./out
   ```
-  Set `REEL_WATCHER_OPENAI_KEY` if your server requires an authorization header. This backend is intended strictly for local servers; do not use it with paid hosted APIs.
+  Set `REEL_SCROLLER_OPENAI_KEY` if your server requires an authorization header. This backend is intended strictly for local servers; do not use it with paid hosted APIs.
 - **MLX** (Apple Silicon only): runs natively using Apple's MLX framework when installed with `uv sync --extra mac`.
 
 ## Output: one study (`out/study/<code>.json`)
@@ -260,7 +260,7 @@ Model output is not guaranteed to be valid or correct: treat `analysis` as a dra
 
 ## Optional: advice library
 
-`reel-watcher advice --in library.json --out advice-library.html` renders a static page of
+`reel-scroller advice --in library.json --out advice-library.html` renders a static page of
 principles grouped by topic, each with its sources, an "implement?" checkbox and a copy-my-picks button.
 It does not call any model. Have your AI assistant build `library.json` from your `study/*.json` using
 `prompts/build_advice_library.md`; the format is shown in `examples/advice_library.json`.
@@ -280,7 +280,7 @@ It does not call any model. Have your AI assistant build `library.json` from you
 
 - **ffmpeg not found**: If you installed ffmpeg with winget on Windows, close and reopen your terminal so the updated PATH takes effect.
 - **Ollama not running**: Ensure the Ollama background service is active (`ollama serve` or check the system tray icon).
-- **CUDA DLL errors on Windows**: Run `uv sync --extra cuda` to install NVIDIA runtime DLLs, or force CPU mode with `REEL_WATCHER_DEVICE=cpu`.
+- **CUDA DLL errors on Windows**: Run `uv sync --extra cuda` to install NVIDIA runtime DLLs, or force CPU mode with `REEL_SCROLLER_DEVICE=cpu`.
 - **Out of memory**: Switch to the smaller model preset using `--model-size small`.
 
 ## Development

@@ -6,7 +6,7 @@ import urllib.error
 
 import pytest
 
-from reel_watcher.backends import vision as v
+from reel_scroller.backends import vision as v
 
 
 class FakeHTTP:
@@ -86,7 +86,7 @@ def test_openai_compatible(tmp_path, monkeypatch):
 
 def test_openai_server_down(monkeypatch):
     monkeypatch.setattr(v.urllib.request, "urlopen", FakeHTTP(urllib.error.URLError("refused")))
-    with pytest.raises(v.VisionError, match="REEL_WATCHER_OPENAI_BASE"):
+    with pytest.raises(v.VisionError, match="REEL_SCROLLER_OPENAI_BASE"):
         v.OpenAIVision("m", base="http://localhost:1234/v1", key="").ask("p")
 
 

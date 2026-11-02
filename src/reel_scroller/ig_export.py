@@ -1,4 +1,4 @@
-"""Turn an Instagram "Download your information" export into a URL list for reel-watcher.
+"""Turn an Instagram "Download your information" export into a URL list for reel-scroller.
 
 How to get the export (Instagram app or web, Accounts Center):
   Settings > Accounts Center > Your information and permissions > Download your information
@@ -16,7 +16,7 @@ from time to time, so the parser is deliberately tolerant):
 Rather than trust one exact layout, it walks the whole JSON and collects every
 instagram.com/reel|p|tv link, using the nearest "title" as the creator hint. HTML exports work
 too (links are read with a regex). If your export looks different, any file with one URL per line
-is accepted by `reel-watcher study` directly.
+is accepted by `reel-scroller study` directly.
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def extract_urls(path: Path, collection: str = "") -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="reel-watcher export", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="reel-scroller export", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="+", help="saved_posts.json (or other export JSON/HTML files)")
     ap.add_argument("-o", "--out", required=True, help="TSV to write (url<TAB>collection)")
     ap.add_argument("--collection", default="", help="label to attach to every URL from these files (e.g. the file's collection name)")

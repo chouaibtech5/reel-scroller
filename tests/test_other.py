@@ -1,6 +1,6 @@
 import json
 
-from reel_watcher import advice_library, cli, ig_export, media, model
+from reel_scroller import advice_library, cli, ig_export, media, model
 
 
 def test_parse_json_strips_think_and_prose():
@@ -37,9 +37,9 @@ def test_export_html_and_cli(tmp_path, capsys):
 
 
 def test_cli_usage(capsys, monkeypatch):
-    monkeypatch.setattr("sys.argv", ["reel-watcher", "--help"])
+    monkeypatch.setattr("sys.argv", ["reel-scroller", "--help"])
     assert cli.main() == 0 and "study" in capsys.readouterr().out
-    monkeypatch.setattr("sys.argv", ["reel-watcher", "bogus"])
+    monkeypatch.setattr("sys.argv", ["reel-scroller", "bogus"])
     assert cli.main() == 2
 
 

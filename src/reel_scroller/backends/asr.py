@@ -27,14 +27,14 @@ def resolve_asr(size: str, env: dict | None = None, apple_silicon: bool | None =
     env = os.environ if env is None else env
     if apple_silicon is None:
         apple_silicon = _util.is_apple_silicon()
-    backend = (env.get("REEL_WATCHER_ASR") or "auto").strip().lower()
+    backend = (env.get("REEL_SCROLLER_ASR") or "auto").strip().lower()
     if backend == "auto":
         backend = "mlx" if (apple_silicon and _has_module("mlx_whisper")) else "faster-whisper"
     if backend not in DEFAULT_MODELS:
         raise ValueError(f"unknown ASR backend: {backend!r}")
     if size not in DEFAULT_MODELS[backend]:
         raise ValueError(f"unknown ASR model size: {size!r}")
-    model = (env.get("REEL_WATCHER_WHISPER") or "").strip() or DEFAULT_MODELS[backend][size]
+    model = (env.get("REEL_SCROLLER_WHISPER") or "").strip() or DEFAULT_MODELS[backend][size]
     return backend, model
 
 
@@ -66,7 +66,7 @@ def _map_segments(raw_segments, language: str | None) -> dict:
 
 def _resolve_device(env: dict | None = None) -> str:
     env = os.environ if env is None else env
-    dev = (env.get("REEL_WATCHER_DEVICE") or "auto").strip().lower()
+    dev = (env.get("REEL_SCROLLER_DEVICE") or "auto").strip().lower()
     if dev == "auto":
         try:
             import ctranslate2

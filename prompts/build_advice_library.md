@@ -19,4 +19,4 @@ gives or demonstrates (look in `transcript.text`, `post.caption`, `analysis.why_
 - Never invent a quote or a source. If you cannot find a quote, leave the principle out.
 - Do not copy long passages from a creator; short quotes only.
 
-Then run `uv run reel-watcher advice --in library.json --out advice-library.html` and open the page.
+Then run `uv run reel-scroller advice --in library.json --out advice-library.html` and open the page.

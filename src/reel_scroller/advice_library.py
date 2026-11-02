@@ -3,7 +3,7 @@
 Deterministic: same input, same output. Stdlib only. The JSON is built from your
 study files (see prompts/build_advice_library.md and examples/advice_library.json).
 
-    reel-watcher advice --in library.json --out advice-library.html
+    reel-scroller advice --in library.json --out advice-library.html
 """
 import argparse
 import html
@@ -223,7 +223,7 @@ def render(lib):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="reel-watcher advice", description=__doc__)
+    ap = argparse.ArgumentParser(prog="reel-scroller advice", description=__doc__)
     ap.add_argument("--in", dest="inp", required=True)
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)

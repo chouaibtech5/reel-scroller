@@ -7,7 +7,7 @@ the per-batch spend cap and resumability do not change.
 ## Package layout
 
 ```
-src/reel_watcher/
+src/reel_scroller/
   backends/
     __init__.py     empty
     _util.py        log(msg) -> prints to stderr; is_apple_silicon() -> bool
@@ -20,7 +20,7 @@ src/reel_watcher/
 ```
 
 Heavy libraries (faster_whisper, rapidocr, onnxruntime, mlx_*, Vision/pyobjc) are imported lazily
-inside functions, never at module top level, so `import reel_watcher.study` works on any OS with only
+inside functions, never at module top level, so `import reel_scroller.study` works on any OS with only
 numpy and pillow installed. Tests never download a model or touch the network.
 
 ## backends/asr.py
@@ -32,9 +32,9 @@ DEFAULT_MODELS = {
 }
 
 def resolve_asr(size: str, env: dict | None = None, apple_silicon: bool | None = None) -> tuple[str, str]:
-    """(backend, model). backend: env REEL_WATCHER_ASR (faster-whisper|mlx|auto, default auto);
+    """(backend, model). backend: env REEL_SCROLLER_ASR (faster-whisper|mlx|auto, default auto);
     auto = "mlx" when apple_silicon and mlx_whisper is importable, else "faster-whisper".
-    model: env REEL_WATCHER_WHISPER, else DEFAULT_MODELS[backend][size]."""
+    model: env REEL_SCROLLER_WHISPER, else DEFAULT_MODELS[backend][size]."""
 
 def transcribe_words(video, model: str, backend: str = "faster-whisper") -> dict:
     """{"language": str|None, "text": str, "segments": [{"start","end","text"}], "words": [{"w","s","e"}]}"""
@@ -43,7 +43,7 @@ def transcribe_words(video, model: str, backend: str = "faster-whisper") -> dict
 - Times rounded to 2 decimals. Skip segments with `no_speech_prob >= 0.6` or empty text.
   `text` is the kept segments' text joined by single spaces. Same shape as the original mlx version.
 - faster-whisper: `word_timestamps=True`, `condition_on_previous_text=False`, no VAD filter.
-  Device from env `REEL_WATCHER_DEVICE` (auto|cpu|cuda, default auto): auto = cuda when
+  Device from env `REEL_SCROLLER_DEVICE` (auto|cpu|cuda, default auto): auto = cuda when
   `ctranslate2.get_cuda_device_count() > 0`, else cpu. compute_type float16 on cuda, int8 on cpu.
   If loading on cuda fails, log it and retry on cpu. Cache loaded models per (model, device) for the process.
 - mlx: same call the original code made (`mlx_whisper.transcribe(..., word_timestamps=True,
@@ -58,7 +58,7 @@ def ocr_backend(env: dict | None = None) -> str:   # "apple" | "rapidocr" | "non
 def ocr_image(path) -> str:
 ```
 
-- Choice: env `REEL_WATCHER_OCR` (auto|apple|rapidocr|none, default auto). auto = "apple" on macOS when
+- Choice: env `REEL_SCROLLER_OCR` (auto|apple|rapidocr|none, default auto). auto = "apple" on macOS when
   `Vision` (pyobjc) imports, else "rapidocr" when it imports, else "none".
 - Output: text lines ordered top to bottom (then left to right), joined by spaces, `SECRET_RE` replaced by
   `[redacted]`, whitespace collapsed, stripped, max 500 chars. Returns "" when nothing is found or no
@@ -78,7 +78,7 @@ def make_vision(backend: str, model: str):  # returns an object with:
 two attempts as the original (second attempt adds `RETRY_HINT`, doubles tokens). temperature 0.
 Backends: `ollama` (default; `OLLAMA_HOST`, default `http://localhost:11434`, `/api/chat`, images base64,
 `format: "json"`), `openai` (any OpenAI-compatible LOCAL server such as LM Studio, llama.cpp, vLLM;
-`REEL_WATCHER_OPENAI_BASE` default `http://localhost:1234/v1`, optional `REEL_WATCHER_OPENAI_KEY`),
+`REEL_SCROLLER_OPENAI_BASE` default `http://localhost:1234/v1`, optional `REEL_SCROLLER_OPENAI_KEY`),
 `mlx` (the original code, Apple Silicon only). Standard library HTTP only (urllib).
 
 ## Model choice (backends/hw.py + model.py)
@@ -93,19 +93,19 @@ with 32 GB RAM or more; otherwise `small`. RAM via psutil, VRAM via `nvidia-smi`
 
 ## CLI and environment
 
-New flag: `--backend ollama|openai|mlx` (env `REEL_WATCHER_BACKEND`; default `mlx` on Apple Silicon when
+New flag: `--backend ollama|openai|mlx` (env `REEL_SCROLLER_BACKEND`; default `mlx` on Apple Silicon when
 mlx_vlm imports, else `ollama`). Existing flags unchanged. Environment variables:
 
 | Variable | Meaning |
 |---|---|
-| `REEL_WATCHER_BACKEND` | vision backend |
-| `REEL_WATCHER_MODEL` | size preset small/large/auto |
-| `REEL_WATCHER_VLM` | exact vision model name for the chosen backend |
+| `REEL_SCROLLER_BACKEND` | vision backend |
+| `REEL_SCROLLER_MODEL` | size preset small/large/auto |
+| `REEL_SCROLLER_VLM` | exact vision model name for the chosen backend |
 | `OLLAMA_HOST` | Ollama address |
-| `REEL_WATCHER_OPENAI_BASE`, `REEL_WATCHER_OPENAI_KEY` | OpenAI-compatible local server |
-| `REEL_WATCHER_ASR`, `REEL_WATCHER_WHISPER`, `REEL_WATCHER_DEVICE` | speech to text |
-| `REEL_WATCHER_OCR` | OCR backend |
-| `APIFY_TOKEN`, `REEL_WATCHER_CONTEXT`, `REEL_WATCHER_WORKFLOW_RE` | unchanged |
+| `REEL_SCROLLER_OPENAI_BASE`, `REEL_SCROLLER_OPENAI_KEY` | OpenAI-compatible local server |
+| `REEL_SCROLLER_ASR`, `REEL_SCROLLER_WHISPER`, `REEL_SCROLLER_DEVICE` | speech to text |
+| `REEL_SCROLLER_OCR` | OCR backend |
+| `APIFY_TOKEN`, `REEL_SCROLLER_CONTEXT`, `REEL_SCROLLER_WORKFLOW_RE` | unchanged |
 
 ## Install
 

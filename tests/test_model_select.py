@@ -1,9 +1,9 @@
 """Model selection logic (no downloads, no model loading)."""
 import pytest
 
-from reel_watcher import media
-from reel_watcher.backends import hw
-from reel_watcher.model import VLM_MODELS, default_backend, select_models
+from reel_scroller import media
+from reel_scroller.backends import hw
+from reel_scroller.model import VLM_MODELS, default_backend, select_models
 
 GB = 1024**3
 PC = {"env": {}, "apple_silicon": False}
@@ -21,7 +21,7 @@ def test_default_backend():
     assert default_backend({}, apple_silicon=False) == "ollama"
     assert default_backend({}, apple_silicon=True, mlx_installed=True) == "mlx"
     assert default_backend({}, apple_silicon=True, mlx_installed=False) == "ollama"
-    assert default_backend({"REEL_WATCHER_BACKEND": "openai"}, apple_silicon=True, mlx_installed=True) == "openai"
+    assert default_backend({"REEL_SCROLLER_BACKEND": "openai"}, apple_silicon=True, mlx_installed=True) == "openai"
 
 
 def test_auto_on_a_pc():
@@ -39,16 +39,16 @@ def test_explicit_size_and_backend():
 
 
 def test_env_size_and_flag_precedence():
-    assert select_models(env={"REEL_WATCHER_MODEL": "small"}, vram_bytes=48 * GB, apple_silicon=False).size == "small"
-    assert select_models("large", env={"REEL_WATCHER_MODEL": "small"}, apple_silicon=False).size == "large"
+    assert select_models(env={"REEL_SCROLLER_MODEL": "small"}, vram_bytes=48 * GB, apple_silicon=False).size == "small"
+    assert select_models("large", env={"REEL_SCROLLER_MODEL": "small"}, apple_silicon=False).size == "large"
 
 
 def test_model_overrides():
     assert select_models("small", model="llava:13b", **PC).vlm == "llava:13b"
-    env = {"REEL_WATCHER_VLM": "a:b", "REEL_WATCHER_WHISPER": "medium"}
+    env = {"REEL_SCROLLER_VLM": "a:b", "REEL_SCROLLER_WHISPER": "medium"}
     c = select_models("small", env=env, apple_silicon=False)
     assert (c.vlm, c.whisper) == ("a:b", "medium")
-    assert select_models("small", model="x:y", env={"REEL_WATCHER_VLM": "a:b"}, apple_silicon=False).vlm == "x:y"
+    assert select_models("small", model="x:y", env={"REEL_SCROLLER_VLM": "a:b"}, apple_silicon=False).vlm == "x:y"
 
 
 def test_bad_size_and_backend():

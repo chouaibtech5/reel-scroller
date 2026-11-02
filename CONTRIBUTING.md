@@ -1,6 +1,6 @@
-# Contributing to reel-watcher
+# Contributing to reel-scroller
 
-Thank you for helping improve reel-watcher.
+Thank you for helping improve reel-scroller.
 
 ## Setup
 

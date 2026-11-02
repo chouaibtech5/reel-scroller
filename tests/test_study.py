@@ -1,7 +1,7 @@
 """study: input parsing, prioritization, Apify mapping, dedupe, giveaway detection (no models, no network)."""
 import json
 
-from reel_watcher import study as rs
+from reel_scroller import study as rs
 
 
 def test_parse_and_prioritize(tmp_path):

@@ -8,7 +8,7 @@ with word timing, and giveaway ("comment X", "DM me X", "link in
 bio") detection. One JSON per reel is written, plus one small hook frame. With
 --archive DIR the media and every analyzed frame are kept in DIR/<code>/.
 
-Use the `reel-watcher study` command. Default is a dry run.
+Use the `reel-scroller study` command. Default is a dry run.
 """
 from __future__ import annotations
 
@@ -45,8 +45,8 @@ FAST_HOOK_TIMES = [0.0, 1.0, 2.0]
 FAST_LATER = 4
 LATER_INTERVAL = 3.0
 MAX_LATER_FRAMES = 10
-WORKFLOW_COLLECTION_RE = re.compile(os.environ.get("REEL_WATCHER_WORKFLOW_RE", r"workflow|tutorial"), re.I)
-VIEWER_CONTEXT = os.environ.get("REEL_WATCHER_CONTEXT", "a viewer who saved it to learn from it")
+WORKFLOW_COLLECTION_RE = re.compile(os.environ.get("REEL_SCROLLER_WORKFLOW_RE", r"workflow|tutorial"), re.I)
+VIEWER_CONTEXT = os.environ.get("REEL_SCROLLER_CONTEXT", "a viewer who saved it to learn from it")
 
 
 def log(msg: str) -> None:
@@ -115,7 +115,7 @@ def apify_token() -> str | None:
 def http_json(method: str, url: str, body: dict | None = None, timeout: int = 120, token: str | None = None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method,
-                                 headers={"Content-Type": "application/json", "User-Agent": "reel-watcher",
+                                 headers={"Content-Type": "application/json", "User-Agent": "reel-scroller",
                                           **({"Authorization": f"Bearer {token}"} if token else {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode() or "null")
@@ -985,9 +985,9 @@ def producer(todo, q, stop, out_root, work_parent, batch_n, cap_usd, token):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="reel-watcher study", description="Analyze saved reels locally. Dry run unless --run.")
+    ap = argparse.ArgumentParser(prog="reel-scroller study", description="Analyze saved reels locally. Dry run unless --run.")
     ap.add_argument("--input", help="TSV/TXT of url<TAB>collections (default: <out-root>/urls.tsv)")
-    ap.add_argument("--out-root", default="./reel-watcher-out", help="where study/ JSON and the run logs go")
+    ap.add_argument("--out-root", default="./reel-scroller-out", help="where study/ JSON and the run logs go")
     ap.add_argument("--run", action="store_true", help="fetch via Apify (paid, small) and analyze")
     ap.add_argument("--limit", type=int, default=0, help="stop after N new reels")
     ap.add_argument("--local", nargs="+", metavar="MP4", help="analyze local video file(s); no download, no Apify, source untouched")
@@ -997,8 +997,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--collections", default="", help="priority terms, comma separated, matched against collection names")
     ap.add_argument("--only-priority", action="store_true", help="with --collections: skip non-matching items")
     ap.add_argument("--backend", choices=list(_model.BACKENDS),
-                    help="vision model backend: ollama (default), openai (local OpenAI-compatible server), mlx (Apple Silicon). Env REEL_WATCHER_BACKEND")
-    ap.add_argument("--model-size", choices=["small", "large"], help="small: 7B vision model + whisper-small; large: 32B+ and whisper-large-v3-turbo. Default auto by GPU/RAM (env REEL_WATCHER_MODEL)")
+                    help="vision model backend: ollama (default), openai (local OpenAI-compatible server), mlx (Apple Silicon). Env REEL_SCROLLER_BACKEND")
+    ap.add_argument("--model-size", choices=["small", "large"], help="small: 7B vision model + whisper-small; large: 32B+ and whisper-large-v3-turbo. Default auto by GPU/RAM (env REEL_SCROLLER_MODEL)")
     ap.add_argument("--model", help="exact vision model name for the backend, e.g. qwen2.5vl:7b for Ollama (overrides --model-size)")
     ap.add_argument("--fast", action="store_true", help="fewer frames and tokens")
     ap.add_argument("--detailed", action="store_true", help="one VLM call per frame instead of one contact sheet")

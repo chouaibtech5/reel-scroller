@@ -3,7 +3,7 @@
 
 ollama  local Ollama server (default everywhere but Apple Silicon with MLX installed)
 openai  any OpenAI-compatible LOCAL server: LM Studio, llama.cpp server, vLLM
-mlx     mlx-vlm on Apple Silicon (the original reel-watcher path)
+mlx     mlx-vlm on Apple Silicon (the original reel-scroller path)
 """
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ class OllamaVision(_Base):
         if image:
             msg["images"] = [_b64(image)]
         options = {"temperature": 0, "num_predict": max_tokens,
-                   "num_ctx": int(os.environ.get("REEL_WATCHER_NUM_CTX") or NUM_CTX)}
+                   "num_ctx": int(os.environ.get("REEL_SCROLLER_NUM_CTX") or NUM_CTX)}
         if penalty:
             options["repeat_penalty"] = penalty
         r = _post_json(self.host + "/api/chat", {"model": self.model, "messages": [msg], "stream": False,
@@ -102,8 +102,8 @@ class OpenAIVision(_Base):
 
     def __init__(self, model: str, base: str | None = None, key: str | None = None):
         self.model = model
-        self.base = (base or os.environ.get("REEL_WATCHER_OPENAI_BASE") or "http://localhost:1234/v1").rstrip("/")
-        self.key = key if key is not None else os.environ.get("REEL_WATCHER_OPENAI_KEY", "")
+        self.base = (base or os.environ.get("REEL_SCROLLER_OPENAI_BASE") or "http://localhost:1234/v1").rstrip("/")
+        self.key = key if key is not None else os.environ.get("REEL_SCROLLER_OPENAI_KEY", "")
         if not _is_local(self.base):
             log(f"warning: {self.base} is not a local address; frames will leave this machine")
 
@@ -121,7 +121,7 @@ class OpenAIVision(_Base):
             r = _post_json(self.base + "/chat/completions", body, headers)
         except (urllib.error.URLError, OSError) as e:
             raise VisionError(f"no OpenAI-compatible server at {self.base} ({e}). Start LM Studio's server or "
-                              "llama.cpp, or set REEL_WATCHER_OPENAI_BASE") from e
+                              "llama.cpp, or set REEL_SCROLLER_OPENAI_BASE") from e
         choices = r.get("choices") or [{}]
         return (choices[0].get("message") or {}).get("content") or ""
 

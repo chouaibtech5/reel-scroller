@@ -4,25 +4,25 @@ from __future__ import annotations
 import types
 import pytest
 
-from reel_watcher.backends import asr, ocr
+from reel_scroller.backends import asr, ocr
 
 
 def test_resolve_asr_precedence_and_auto(monkeypatch):
     # Explicit backend via env, default model per size
     monkeypatch.setitem(__import__("sys").modules, "mlx_whisper", None)
-    assert asr.resolve_asr("small", env={"REEL_WATCHER_ASR": "faster-whisper"}, apple_silicon=True) == (
+    assert asr.resolve_asr("small", env={"REEL_SCROLLER_ASR": "faster-whisper"}, apple_silicon=True) == (
         "faster-whisper",
         "small",
     )
-    assert asr.resolve_asr("large", env={"REEL_WATCHER_ASR": "faster-whisper"}, apple_silicon=False) == (
+    assert asr.resolve_asr("large", env={"REEL_SCROLLER_ASR": "faster-whisper"}, apple_silicon=False) == (
         "faster-whisper",
         "large-v3-turbo",
     )
-    assert asr.resolve_asr("small", env={"REEL_WATCHER_ASR": "mlx"}, apple_silicon=False) == (
+    assert asr.resolve_asr("small", env={"REEL_SCROLLER_ASR": "mlx"}, apple_silicon=False) == (
         "mlx",
         "mlx-community/whisper-small-mlx",
     )
-    assert asr.resolve_asr("large", env={"REEL_WATCHER_ASR": "mlx"}, apple_silicon=False) == (
+    assert asr.resolve_asr("large", env={"REEL_SCROLLER_ASR": "mlx"}, apple_silicon=False) == (
         "mlx",
         "mlx-community/whisper-large-v3-turbo",
     )
@@ -30,7 +30,7 @@ def test_resolve_asr_precedence_and_auto(monkeypatch):
     # Env model override wins over size preset
     assert asr.resolve_asr(
         "small",
-        env={"REEL_WATCHER_ASR": "faster-whisper", "REEL_WATCHER_WHISPER": "custom/whisper"},
+        env={"REEL_SCROLLER_ASR": "faster-whisper", "REEL_SCROLLER_WHISPER": "custom/whisper"},
         apple_silicon=False,
     ) == ("faster-whisper", "custom/whisper")
 
@@ -54,7 +54,7 @@ def test_resolve_asr_precedence_and_auto(monkeypatch):
 
     # Unknown backend raises ValueError
     with pytest.raises(ValueError):
-        asr.resolve_asr("small", env={"REEL_WATCHER_ASR": "whisper-cpp"}, apple_silicon=False)
+        asr.resolve_asr("small", env={"REEL_SCROLLER_ASR": "whisper-cpp"}, apple_silicon=False)
 
 
 def test_transcribe_words_mlx_and_segment_mapping(monkeypatch, tmp_path):
@@ -166,7 +166,7 @@ def test_transcribe_words_faster_whisper_caching_and_cuda_fallback(monkeypatch, 
 
     monkeypatch.setitem(__import__("sys").modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisperModel))
     monkeypatch.setitem(__import__("sys").modules, "ctranslate2", types.SimpleNamespace(get_cuda_device_count=lambda: 1))
-    monkeypatch.delenv("REEL_WATCHER_DEVICE", raising=False)
+    monkeypatch.delenv("REEL_SCROLLER_DEVICE", raising=False)
 
     vid = tmp_path / "reel.mp4"
     res1 = asr.transcribe_words(vid, "small", backend="faster-whisper")
@@ -185,7 +185,7 @@ def test_transcribe_words_faster_whisper_caching_and_cuda_fallback(monkeypatch, 
     }
 
     # Second call on cpu uses the cached instance without re-instantiating WhisperModel
-    monkeypatch.setenv("REEL_WATCHER_DEVICE", "cpu")
+    monkeypatch.setenv("REEL_SCROLLER_DEVICE", "cpu")
     res2 = asr.transcribe_words(vid, "small", backend="faster-whisper")
     assert len(init_calls) == 2
     assert res2["text"] == "Test faster"
@@ -193,11 +193,11 @@ def test_transcribe_words_faster_whisper_caching_and_cuda_fallback(monkeypatch, 
 
 def test_ocr_backend_choice(monkeypatch):
     # Explicit env values
-    assert ocr.ocr_backend(env={"REEL_WATCHER_OCR": "apple"}) == "apple"
-    assert ocr.ocr_backend(env={"REEL_WATCHER_OCR": "rapidocr"}) == "rapidocr"
-    assert ocr.ocr_backend(env={"REEL_WATCHER_OCR": "none"}) == "none"
+    assert ocr.ocr_backend(env={"REEL_SCROLLER_OCR": "apple"}) == "apple"
+    assert ocr.ocr_backend(env={"REEL_SCROLLER_OCR": "rapidocr"}) == "rapidocr"
+    assert ocr.ocr_backend(env={"REEL_SCROLLER_OCR": "none"}) == "none"
     with pytest.raises(ValueError):
-        ocr.ocr_backend(env={"REEL_WATCHER_OCR": "tesseract"})
+        ocr.ocr_backend(env={"REEL_SCROLLER_OCR": "tesseract"})
 
     # Auto on darwin with Vision -> apple
     monkeypatch.setattr("sys.platform", "darwin")
@@ -222,7 +222,7 @@ def test_ocr_backend_choice(monkeypatch):
 
 
 def test_ocr_image_rapidocr_v3_ordering_secrets_and_cap(monkeypatch, tmp_path):
-    monkeypatch.setenv("REEL_WATCHER_OCR", "rapidocr")
+    monkeypatch.setenv("REEL_SCROLLER_OCR", "rapidocr")
     init_count = 0
     secret_key = "sk-proj-1234567890abcdefghijklmnop"
 
@@ -262,7 +262,7 @@ def test_ocr_image_rapidocr_v3_ordering_secrets_and_cap(monkeypatch, tmp_path):
 
 
 def test_ocr_image_rapidocr_v3_empty_or_none(monkeypatch, tmp_path):
-    monkeypatch.setenv("REEL_WATCHER_OCR", "rapidocr")
+    monkeypatch.setenv("REEL_SCROLLER_OCR", "rapidocr")
 
     class FakeRapidOCRNone:
         def __call__(self, path):
@@ -273,7 +273,7 @@ def test_ocr_image_rapidocr_v3_empty_or_none(monkeypatch, tmp_path):
 
 
 def test_ocr_image_rapidocr_onnxruntime_fallback_and_none(monkeypatch, tmp_path):
-    monkeypatch.setenv("REEL_WATCHER_OCR", "rapidocr")
+    monkeypatch.setenv("REEL_SCROLLER_OCR", "rapidocr")
     monkeypatch.setitem(__import__("sys").modules, "rapidocr", None)
 
     results_queue = [
@@ -302,7 +302,7 @@ def test_ocr_image_rapidocr_onnxruntime_fallback_and_none(monkeypatch, tmp_path)
 
 
 def test_ocr_image_none_backend_logs_once(monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("REEL_WATCHER_OCR", "none")
+    monkeypatch.setenv("REEL_SCROLLER_OCR", "none")
     assert ocr.ocr_image(tmp_path / "1.jpg") == ""
     err1 = capsys.readouterr().err
     assert err1.strip() != ""
@@ -312,7 +312,7 @@ def test_ocr_image_none_backend_logs_once(monkeypatch, tmp_path, capsys):
 
 
 def test_ocr_image_apple_vision(monkeypatch, tmp_path):
-    monkeypatch.setenv("REEL_WATCHER_OCR", "apple")
+    monkeypatch.setenv("REEL_SCROLLER_OCR", "apple")
 
     class FakeCandidate:
         def __init__(self, s):
@@ -393,7 +393,7 @@ def test_faster_whisper_cuda_fails_during_decoding(monkeypatch, tmp_path, capsys
 
     monkeypatch.setattr(asr, "_MODELS", {})
     monkeypatch.setitem(__import__("sys").modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisperModel))
-    monkeypatch.setenv("REEL_WATCHER_DEVICE", "cuda")
+    monkeypatch.setenv("REEL_SCROLLER_DEVICE", "cuda")
     assert asr.transcribe_words(tmp_path / "a.mp4", "small")["text"] == "hi"
     assert asr.transcribe_words(tmp_path / "b.mp4", "small")["text"] == "hi"
     assert inits == ["cuda", "cpu"]
@@ -401,7 +401,7 @@ def test_faster_whisper_cuda_fails_during_decoding(monkeypatch, tmp_path, capsys
 
 
 def test_ocr_image_engine_error_returns_empty(monkeypatch, tmp_path):
-    monkeypatch.setenv("REEL_WATCHER_OCR", "rapidocr")
+    monkeypatch.setenv("REEL_SCROLLER_OCR", "rapidocr")
     monkeypatch.setattr(ocr, "_LOGGED_NO_OCR", False)
 
     def broken():

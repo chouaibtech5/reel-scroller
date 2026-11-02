@@ -1,16 +1,16 @@
-"""reel-watcher command line: study | export | advice."""
+"""reel-scroller command line: study | export | advice."""
 from __future__ import annotations
 
 import sys
 
-USAGE = """usage: reel-watcher <command> [options]
+USAGE = """usage: reel-scroller <command> [options]
 
 commands:
   export   convert an Instagram data export (saved_posts.json) into a URL list
   study    fetch (Apify) and analyze saved reels locally; --local analyzes mp4 files; dry run by default
   advice   render an advice library JSON to a static HTML page (optional)
 
-Run `reel-watcher <command> --help` for options."""
+Run `reel-scroller <command> --help` for options."""
 
 
 def main() -> int:
