@@ -24,7 +24,7 @@ uv run reel-scroller study --input urls.tsv --out-root ./out --run --limit 3
 
 | File | Role |
 |---|---|
-| `cli.py` | `reel-scroller study|export|advice` dispatcher |
+| `cli.py` | `reel-scroller study|export|advice|dash` dispatcher |
 | `study.py` | The pipeline: Apify fetch, frame sampling, OCR, dedupe, contact-sheet VLM call, whisper, giveaway detection, archive, JSON writing, `main()` |
 | `model.py` | Model-size choice, `parse_json`, `RETRY_HINT`; delegates to `backends/` |
 | `backends/vision.py` | Ollama, OpenAI-compatible and MLX vision backends (`make_vision`) |
@@ -32,6 +32,8 @@ uv run reel-scroller study --input urls.tsv --out-root ./out --run --limit 3
 | `backends/ocr.py` | `ocr_backend`, `ocr_image` (RapidOCR, Apple Vision) |
 | `backends/hw.py` | RAM and GPU detection |
 | `media.py` | ffprobe/ffmpeg helpers, scene cuts, Instagram URL parsing, preflight |
+| `live.py` | Live run state for the dashboard (`<out-root>/_live/`); every call is a no-op until `begin()` and never raises |
+| `dashboard.py`, `dashboard.html` | Local read-only dashboard server (stdlib `http.server`, 127.0.0.1) and its single page |
 | `ig_export.py` | Instagram data export (saved_posts JSON/HTML) to URL list |
 | `advice_library.py` | Optional renderer: advice library JSON to one static HTML page |
 

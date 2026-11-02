@@ -9,6 +9,7 @@ commands:
   export   convert an Instagram data export (saved_posts.json) into a URL list
   study    fetch (Apify) and analyze saved reels locally; --local analyzes mp4 files; dry run by default
   advice   render an advice library JSON to a static HTML page (optional)
+  dash     local dashboard: watch a run live and browse analyzed reels
 
 Run `reel-scroller <command> --help` for options."""
 
@@ -24,6 +25,8 @@ def main() -> int:
         from .ig_export import main as run
     elif cmd == "advice":
         from .advice_library import main as run
+    elif cmd == "dash":
+        from .dashboard import main as run
     else:
         print(USAGE)
         return 2

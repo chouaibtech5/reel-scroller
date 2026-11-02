@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reel-scroller</title>
+<style>
+:root {
+  --bg: #0a0c0f; --panel: #11141a; --panel2: #161a21; --line: #222832; --text: #d7dee7; --dim: #7c8796;
+  --faint: #4a5361; --accent: #ffd23f; --ok: #3ddc84; --bad: #ff5f5f; --info: #5cc8ff; --model: #c792ea;
+  --mono: "JetBrains Mono", "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--info); }
+.mono { font-family: var(--mono); }
+.dim { color: var(--dim); }
+
+/* top bar */
+header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: rgba(10,12,15,.92); backdrop-filter: blur(8px); z-index: 5; flex-wrap: wrap; }
+.brand { font: 600 15px var(--mono); letter-spacing: -.3px; display: flex; align-items: center; gap: 8px; }
+.brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
+.brand .dot.on { background: var(--ok); box-shadow: 0 0 10px var(--ok); animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+nav { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+nav button { background: none; border: 0; padding: 5px 12px; border-radius: 6px; cursor: pointer; color: var(--dim); }
+nav button.on { background: var(--panel2); color: var(--text); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.chip { font: 12px var(--mono); padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); white-space: nowrap; }
+.chip b { color: var(--accent); font-weight: 600; }
+.chip.model b { color: var(--model); }
+.bar { height: 3px; background: var(--panel2); }
+.bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--ok)); transition: width .6s; }
+
+/* panels */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ph { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--dim); }
+.ph .lights { display: flex; gap: 5px; }
+.ph .lights i { width: 9px; height: 9px; border-radius: 50%; display: block; }
+.ph .lights i:nth-child(1) { background: #ff5f57; } .ph .lights i:nth-child(2) { background: #febc2e; } .ph .lights i:nth-child(3) { background: #28c840; }
+.ph .title { color: var(--text); }
+.ph .right { margin-left: auto; }
+.pb { padding: 10px; overflow: auto; min-height: 0; flex: 1; }
+
+/* live layout */
+#live { display: grid; gap: 12px; padding: 12px 16px 16px; grid-template-columns: 300px minmax(0, 1.25fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr); height: calc(100vh - 60px); }
+#phoneWrap { grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.phone { width: 270px; aspect-ratio: 9 / 19.5; border-radius: 38px; background: #000; border: 8px solid #1d2128;
+  box-shadow: 0 0 0 1px #2b313b, 0 30px 60px rgba(0,0,0,.6); position: relative; overflow: hidden; }
+.phone .notch { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 80px; height: 22px; border-radius: 12px; background: #000; z-index: 3; }
+#phone { position: absolute; inset: 0; }
+.phone img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.phone .ov { position: absolute; left: 0; right: 0; padding: 10px 12px; z-index: 2; font: 11px var(--mono); }
+.phone .top { top: 30px; background: linear-gradient(rgba(0,0,0,.65), transparent); }
+.phone .bot { bottom: 0; background: linear-gradient(transparent, rgba(0,0,0,.85)); padding-bottom: 16px; }
+.phone .t { color: var(--accent); }
+.phone .idle { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--dim); font: 12px var(--mono); }
+.stage { font: 12px var(--mono); color: var(--accent); }
+.stage .spin { display: inline-block; width: 8px; height: 8px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; width: 270px; }
+.fact { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: 11px var(--mono); }
+.fact b { display: block; font-size: 14px; color: var(--text); }
+
+#framesPanel { grid-column: 2 / span 2; }
+.strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.strip figure { margin: 0; flex: 0 0 auto; text-align: center; font: 11px var(--mono); color: var(--dim); }
+.strip img { height: 132px; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 6px; border: 2px solid transparent; display: block; margin-bottom: 4px; background: var(--panel2); }
+.strip figure.cur img { border-color: var(--accent); }
+.empty { color: var(--faint); font: 12px var(--mono); padding: 6px 2px; }
+
+.log { font: 12px/1.55 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.log .ts { color: var(--faint); }
+.log .tag { color: var(--model); }
+.log .tag.ffmpeg { color: var(--info); } .log .tag.ocr { color: #f78c6c; } .log .tag.write, .log .tag.done { color: var(--ok); }
+.log .tag.error { color: var(--bad); } .log .tag.run { color: var(--accent); }
+.log .err { color: var(--bad); } .log .ok { color: var(--ok); }
+#rightCol { display: grid; grid-template-rows: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; min-height: 0; }
+.json { font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; margin: 0; }
+.json .k { color: var(--info); } .json .s { color: #c3e88d; } .json .n { color: #f78c6c; } .json .b { color: var(--model); }
+.words { font: 12px/1.9 var(--mono); }
+.words span { display: inline-block; margin-right: 8px; }
+.words small { color: var(--faint); margin-right: 3px; }
+
+/* library */
+#library { padding: 14px 16px 30px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.toolbar input, .toolbar select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.toolbar input[type=search] { width: 280px; max-width: 100%; }
+.toolbar label { display: flex; gap: 6px; align-items: center; color: var(--dim); cursor: pointer; }
+.count { margin-left: auto; color: var(--text); font: 12px var(--mono); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer; transition: transform .12s, border-color .12s; }
+.card:hover { transform: translateY(-2px); border-color: #39414e; }
+.thumb { aspect-ratio: 9 / 16; background: var(--panel2) center / cover no-repeat; position: relative; }
+.thumb .tags { position: absolute; left: 6px; right: 6px; top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+.tagp { font: 10px var(--mono); padding: 2px 6px; border-radius: 5px; background: rgba(0,0,0,.7); color: var(--text); }
+.tagp.give { background: var(--accent); color: #111; font-weight: 700; }
+.thumb .hook { position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 8px 8px; background: linear-gradient(transparent, rgba(0,0,0,.88));
+  font-weight: 600; font-size: 12px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.meta { padding: 8px 10px; font: 11px var(--mono); color: var(--dim); display: flex; justify-content: space-between; gap: 6px; }
+.meta span:first-child { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta span:last-child { white-space: nowrap; }
+.nothing { color: var(--dim); text-align: center; padding: 60px 20px; font: 13px var(--mono); }
+.nothing code, .idlebox code { background: var(--panel2); padding: 2px 6px; border-radius: 5px; color: var(--accent); }
+
+/* detail */
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(1100px, 96vw); max-height: 92vh; }
+dialog::backdrop { background: rgba(0,0,0,.7); }
+.dl { display: grid; grid-template-columns: 280px 1fr; max-height: 92vh; }
+.dl > aside { padding: 16px; border-right: 1px solid var(--line); overflow: auto; }
+.dl > aside img { width: 100%; border-radius: 10px; display: block; }
+.dl > main { padding: 16px 20px; overflow: auto; }
+.sec { margin-bottom: 18px; }
+.sec h3 { font: 600 11px var(--mono); letter-spacing: .8px; text-transform: uppercase; color: var(--dim); margin: 0 0 6px; }
+.kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; font-size: 13px; }
+.kv div:nth-child(odd) { color: var(--dim); font: 12px var(--mono); padding-top: 1px; }
+.beats { display: flex; flex-direction: column; gap: 4px; }
+.beat { display: grid; grid-template-columns: 54px 90px 1fr; gap: 8px; font-size: 13px; }
+.beat .t { font: 12px var(--mono); color: var(--accent); }
+.beat .k { font: 12px var(--mono); color: var(--model); }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+td, th { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--dim); font: 11px var(--mono); }
+.x { position: sticky; top: 0; float: right; background: none; border: 0; color: var(--dim); font-size: 20px; cursor: pointer; }
+.btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; font-size: 12px; }
+.quote { border-left: 2px solid var(--accent); padding: 2px 0 2px 10px; color: var(--dim); font-size: 12px; margin: 4px 0; }
+
+@media (max-width: 1100px) {
+  #live { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
+  #phoneWrap { grid-row: auto; }
+  #framesPanel { grid-column: auto; }
+  #logPanel, #rightCol > .panel { min-height: 320px; }
+  .dl { grid-template-columns: 1fr; }
+  .dl > aside { border-right: 0; border-bottom: 1px solid var(--line); }
+  .dl > aside img { max-width: 260px; margin: 0 auto; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot" id="liveDot"></span>reel-scroller</div>
+  <nav><button id="tabLive" class="on">Live</button><button id="tabLib">Library</button></nav>
+  <div class="chips" id="chips"></div>
+</header>
+<div class="bar"><div id="progress"></div></div>
+
+<section id="live">
+  <div id="phoneWrap">
+    <div class="phone"><div class="notch"></div><div id="phone"></div></div>
+    <div class="stage" id="stage"></div>
+    <div class="facts" id="facts"></div>
+  </div>
+  <div class="panel" id="framesPanel">
+    <div class="ph"><span class="lights"><i></i><i></i><i></i></span><span class="title">frames</span><span id="framesTitle" class="dim"></span><span class="right" id="framesCount"></span></div>
+    <div class="pb"><div class="strip" id="strip"></div></div>
+  </div>
+  <div class="panel" id="logPanel">
+    <div class="ph"><span class="lights"><i></i><i></i><i></i></span><span class="title">run log</span><span class="right" id="logInfo"></span></div>
+    <div class="pb log" id="log"></div>
+  </div>
+  <div id="rightCol">
+    <div class="panel">
+      <div class="ph"><span class="lights"><i></i><i></i><i></i></span><span class="title">analysis.json</span><span class="dim" id="jsonTitle"></span><span class="right"><button class="btn" id="openLast" hidden>open</button></span></div>
+      <div class="pb"><pre class="json" id="json"><span class="dim">The verdict of the last finished reel appears here.</span></pre></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="lights"><i></i><i></i><i></i></span><span class="title">transcript</span><span class="right dim" id="trInfo"></span></div>
+      <div class="pb words" id="tr"><span class="dim">Words with their timing appear here.</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="library" hidden>
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="Search hooks, authors, formats, verdicts...">
+    <select id="fmt"><option value="">All formats</option></select>
+    <select id="sort">
+      <option value="new">Newest</option><option value="views">Most views</option><option value="cuts">Fastest cuts</option>
+    </select>
+    <label><input type="checkbox" id="giveOnly"> Giveaways only</label>
+    <span class="count" id="count"></span>
+  </div>
+  <div class="grid" id="grid"></div>
+</section>
+
+<dialog id="dlg"></dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtNum = (n) => n == null ? "" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n);
+const clock = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
+const dur = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}h${String(m).padStart(2, "0")}m` : m ? `${m}m${String(s % 60).padStart(2, "0")}s` : `${s}s`; };
+
+function jsonHtml(v, ind = "") {
+  const pad = ind + "  ";
+  if (v === null) return '<span class="b">null</span>';
+  if (typeof v === "boolean") return `<span class="b">${v}</span>`;
+  if (typeof v === "number") return `<span class="n">${v}</span>`;
+  if (typeof v === "string") return `<span class="s">"${esc(v)}"</span>`;
+  if (Array.isArray(v)) {
+    if (!v.length) return "[]";
+    return "[\n" + v.map((x) => pad + jsonHtml(x, pad)).join(",\n") + "\n" + ind + "]";
+  }
+  const ks = Object.keys(v);
+  if (!ks.length) return "{}";
+  return "{\n" + ks.map((k) => `${pad}<span class="k">"${esc(k)}"</span>: ${jsonHtml(v[k], pad)}`).join(",\n") + "\n" + ind + "}";
+}
+
+/* ---------------- tabs ---------------- */
+function show(tab) {
+  $("live").hidden = tab !== "live";
+  $("library").hidden = tab !== "lib";
+  $("tabLive").classList.toggle("on", tab === "live");
+  $("tabLib").classList.toggle("on", tab === "lib");
+  if (tab === "lib") loadLibrary();
+  try { localStorage.setItem("rs.tab", tab); } catch (e) {}
+}
+$("tabLive").onclick = () => show("live");
+$("tabLib").onclick = () => show("lib");
+
+/* ---------------- live ---------------- */
+let since = 0, lastCode = null, frameIdx = 0, curFrames = [], curKey = "", stickToBottom = true, lastState = null;
+$("log").addEventListener("scroll", () => { const el = $("log"); stickToBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30; });
+
+function chips(st, sys) {
+  const run = st && st.run, setup = (run && run.setup) || {};
+  const out = [];
+  if (run) {
+    const finished = (run.done || 0) + (run.failed || 0);
+    out.push(`<span class="chip">analyzed <b>${run.done}/${run.total}</b>${run.failed ? ` · <span style="color:var(--bad)">${run.failed} failed</span>` : ""}</span>`);
+    if (run.avg_s) out.push(`<span class="chip"><b>${run.avg_s}</b> s/reel</span>`);
+    if (run.avg_s && !run.finished_at && run.total > finished) out.push(`<span class="chip">eta <b>${dur(run.avg_s * (run.total - finished))}</b></span>`);
+    if (setup.vlm) out.push(`<span class="chip model">vision <b>${esc(setup.vlm)}</b></span>`);
+    if (setup.whisper) out.push(`<span class="chip model">asr <b>${esc(setup.whisper)}</b></span>`);
+    $("progress").style.width = (run.total ? 100 * finished / run.total : 0) + "%";
+  }
+  if (sys) {
+    if (sys.gpu_pct != null) out.push(`<span class="chip">gpu <b>${sys.gpu_pct}%</b> · ${sys.vram_used_gb}/${sys.vram_total_gb} GB</span>`);
+    else if (sys.cpu_pct != null) out.push(`<span class="chip">cpu <b>${Math.round(sys.cpu_pct)}%</b></span>`);
+    if (sys.ram_total_gb) out.push(`<span class="chip">ram <b>${sys.ram_used_gb}</b>/${sys.ram_total_gb} GB</span>`);
+  }
+  $("chips").innerHTML = out.join("");
+  $("liveDot").classList.toggle("on", !!(run && !run.finished_at));
+}
+
+function renderPhone(st, now) {
+  const cur = st && st.current, last = st && st.last;
+  const frames = (cur && cur.frames && cur.frames.length) ? cur.frames : (last && last.frames) || [];
+  const key = frames.map((f) => f.file).join("|");
+  if (key !== curKey) { curKey = key; curFrames = frames; frameIdx = 0; }
+  if (!st || !st.run) {
+    $("phone").innerHTML = `<div class="idle"><div class="idlebox">No run yet.<br><br>Start one in a terminal:<br><br><code>reel-scroller study --local clip.mp4 --dash</code></div></div>`;
+    $("stage").innerHTML = ""; $("facts").innerHTML = ""; return;
+  }
+  const f = curFrames[frameIdx % Math.max(1, curFrames.length)];
+  const who = cur || last;
+  const top = who ? `<div class="ov top">${esc(who.code)}${who.author ? " · @" + esc(who.author) : ""}</div>` : "";
+  const bot = f ? `<div class="ov bot"><span class="t">${esc(f.label)}</span> · frame ${frameIdx % curFrames.length + 1}/${curFrames.length}</div>` : "";
+  $("phone").innerHTML = f ? `${top}<img src="/img/live/${esc(f.file)}" alt="">${bot}`
+    : `${top}<div class="idle">${st.run.finished_at ? "Run finished." : "Waiting for frames..."}</div>`;
+  if (cur) $("stage").innerHTML = `<span class="spin"></span>${esc(cur.stage)} · ${dur(now - cur.started_at)}`;
+  else $("stage").innerHTML = st.run.finished_at ? `<span style="color:var(--ok)">run finished ${clock(st.run.finished_at)}</span>` : "";
+  const fx = (cur && cur.facts) || {};
+  const items = [["duration", fx.duration_s != null ? fx.duration_s.toFixed(1) + "s" : "-"], ["cuts / 10s", fx.cuts_per_10s ?? "-"],
+    ["resolution", fx.resolution || "-"], ["frames", curFrames.length || "-"]];
+  $("facts").innerHTML = cur ? items.map(([k, v]) => `<div class="fact">${k}<b>${esc(v)}</b></div>`).join("") : "";
+}
+
+function renderStrip() {
+  $("strip").innerHTML = curFrames.length ? curFrames.map((f, i) =>
+    `<figure class="${i === frameIdx % curFrames.length ? "cur" : ""}"><img src="/img/live/${esc(f.file)}" alt="">${esc(f.label)}</figure>`).join("")
+    : `<div class="empty">Frames of the reel being analyzed show here.</div>`;
+  $("framesCount").textContent = curFrames.length ? `${curFrames.length} sampled` : "";
+}
+
+function renderTranscript(st) {
+  const cur = st && st.current;
+  if (cur && cur.transcript) {
+    const w = cur.transcript.words || [];
+    $("trInfo").textContent = `${cur.code} · ${cur.transcript.language || "?"} · ${w.length} words`;
+    $("tr").innerHTML = w.length ? w.map((x) => `<span><small>${x.s.toFixed(2)}</small>${esc(x.w)}</span>`).join("") : `<span class="dim">(no speech)</span>`;
+  }
+}
+
+function appendEvents(evs) {
+  if (!evs.length) return;
+  const el = $("log");
+  const html = evs.map((e) => {
+    const tag = e.tag ? `<span class="tag ${esc(e.tag.split(/[^a-z]/)[0])}">[${esc(e.tag)}]</span> ` : "";
+    const cls = e.tag === "error" ? "err" : e.tag === "done" ? "ok" : "";
+    return `<div><span class="ts">${clock(e.t)}</span> ${tag}<span class="${cls}">${esc(e.msg)}</span></div>`;
+  }).join("");
+  el.insertAdjacentHTML("beforeend", html);
+  while (el.childElementCount > 600) el.firstElementChild.remove();
+  if (stickToBottom) el.scrollTop = el.scrollHeight;
+  $("logInfo").textContent = `${el.childElementCount} lines`;
+}
+
+async function showLast(code, secs) {
+  const r = await fetch(`/api/reel/${encodeURIComponent(code)}`);
+  if (!r.ok) return;
+  const rec = await r.json();
+  const view = { analysis: rec.analysis, giveaway: rec.giveaway, facts: rec.facts };
+  $("json").innerHTML = jsonHtml(view);
+  $("jsonTitle").textContent = `study/${code}.json · ${secs}s`;
+  $("openLast").hidden = false;
+  $("openLast").onclick = () => openReel(code);
+  const st = lastState;
+  if (!(st && st.current && st.current.transcript)) {
+    const w = (rec.transcript && rec.transcript.words) || [];
+    $("trInfo").textContent = `${code} · ${(rec.transcript && rec.transcript.language) || "?"} · ${w.length} words`;
+    $("tr").innerHTML = w.length ? w.map((x) => `<span><small>${x.s.toFixed(2)}</small>${esc(x.w)}</span>`).join("") : `<span class="dim">(no speech)</span>`;
+  }
+}
+
+async function poll() {
+  try {
+    const r = await fetch(`/api/live?since=${since}`);
+    const d = await r.json();
+    if (d.next < since) { $("log").innerHTML = ""; }  // a new run reset the log
+    since = d.next;
+    lastState = d.state;
+    chips(d.state, d.sys);
+    renderPhone(d.state, d.now);
+    renderStrip();
+    renderTranscript(d.state);
+    appendEvents(d.events || []);
+    const last = d.state && d.state.last;
+    if (last && last.code !== lastCode) { lastCode = last.code; showLast(last.code, last.secs); if (!$("library").hidden) loadLibrary(); }
+  } catch (e) {
+    $("stage").innerHTML = `<span style="color:var(--bad)">dashboard server not reachable</span>`;
+  }
+  setTimeout(poll, 1000);
+}
+setInterval(() => { if (curFrames.length > 1) { frameIdx++; renderPhone(lastState, Date.now() / 1000); renderStrip(); } }, 900);
+
+/* ---------------- library ---------------- */
+let reels = [];
+async function loadLibrary() {
+  const r = await fetch("/api/library");
+  const d = await r.json();
+  reels = d.reels || [];
+  const fmts = [...new Set(reels.map((x) => x.format).filter(Boolean))].sort();
+  const sel = $("fmt"), keep = sel.value;
+  sel.innerHTML = `<option value="">All formats</option>` + fmts.map((f) => `<option>${esc(f)}</option>`).join("");
+  sel.value = fmts.includes(keep) ? keep : "";
+  renderGrid();
+}
+function renderGrid() {
+  const q = $("q").value.trim().toLowerCase(), fmt = $("fmt").value, give = $("giveOnly").checked, sort = $("sort").value;
+  let list = reels.filter((x) => (!fmt || x.format === fmt) && (!give || x.giveaway) &&
+    (!q || [x.code, x.author, x.format, x.hook_type, x.hook_text, x.why_it_works, x.giveaway, (x.collections || []).join(" ")].join(" ").toLowerCase().includes(q)));
+  if (sort === "views") list.sort((a, b) => (b.views || 0) - (a.views || 0));
+  if (sort === "cuts") list.sort((a, b) => (b.cuts_per_10s || 0) - (a.cuts_per_10s || 0));
+  $("count").textContent = `${list.length} of ${reels.length} reels`;
+  if (!reels.length) {
+    $("grid").innerHTML = `<div class="nothing" style="grid-column:1/-1">Nothing analyzed yet.<br><br>Try <code>reel-scroller study --local clip.mp4 --dash</code></div>`;
+    return;
+  }
+  $("grid").innerHTML = list.map((x) => `
+    <div class="card" data-code="${esc(x.code)}">
+      <div class="thumb" style="${x.keyframe ? `background-image:url('/img/study/${encodeURIComponent(x.keyframe)}')` : ""}">
+        <div class="tags">${x.format ? `<span class="tagp">${esc(x.format)}</span>` : ""}${x.giveaway ? `<span class="tagp give">${esc(x.giveaway)}</span>` : ""}</div>
+        <div class="hook">${esc(x.hook_text || x.hook_type || x.code)}</div>
+      </div>
+      <div class="meta"><span>${x.author ? "@" + esc(x.author) : esc(x.code)}</span><span>${x.views ? fmtNum(x.views) + " views" : x.cuts_per_10s != null ? x.cuts_per_10s + " cuts/10s" : ""}</span></div>
+    </div>`).join("");
+  document.querySelectorAll(".card").forEach((c) => c.onclick = () => openReel(c.dataset.code));
+}
+["q", "fmt", "sort", "giveOnly"].forEach((id) => $(id).addEventListener("input", renderGrid));
+
+/* ---------------- detail ---------------- */
+async function openReel(code) {
+  const r = await fetch(`/api/reel/${encodeURIComponent(code)}`);
+  if (!r.ok) return;
+  const x = await r.json();
+  const a = (x.analysis && typeof x.analysis === "object") ? x.analysis : {};
+  const hook = a.hook || {}, cta = a.cta || {}, tk = a.takeaway || {}, g = x.giveaway || {}, f = x.facts || {}, post = x.post || {};
+  const kv = (rows) => `<div class="kv">${rows.filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v]) => `<div>${k}</div><div>${esc(v)}</div>`).join("")}</div>`;
+  const link = /^https?:/.test(x.url || "") ? `<p><a href="${esc(x.url)}" target="_blank" rel="noopener">Open on Instagram</a></p>` : "";
+  const beats = (a.structure_beats || []).map((b) => `<div class="beat"><span class="t">${b.t ?? ""}${typeof b.t === "number" ? "s" : ""}</span><span class="k">${esc(b.beat)}</span><span>${esc(b.what)}</span></div>`).join("");
+  const frames = (x.frames || []).map((fr) => `<tr><td class="mono">${fr.t != null ? fr.t + "s" : "slide " + esc(fr.slide)}</td><td>${esc(fr.shot_type || (fr.visual && fr.visual.graphic_type) || "")}</td><td>${esc((fr.visual && fr.visual.on_screen_text) || fr.on_screen_text || "")}</td></tr>`).join("");
+  const ev = (g.evidence || []).map((e) => `<div class="quote">${esc(e.quote)} <span class="mono">(${esc(e.where)})</span></div>`).join("");
+  $("dlg").innerHTML = `<div class="dl">
+    <aside>
+      ${x.keyframe ? `<img src="/img/study/${encodeURIComponent(x.keyframe)}" alt="">` : ""}
+      <div class="sec" style="margin-top:12px"><h3>Reel</h3>${kv([["code", x.code], ["author", post.author && "@" + post.author], ["views", fmtNum(post.views)], ["likes", fmtNum(post.likes)], ["posted", post.post_date], ["collections", (x.collections || []).join(", ")]])}${link}</div>
+      <div class="sec"><h3>Facts</h3>${kv([["duration", f.duration_s != null && f.duration_s.toFixed(1) + "s"], ["resolution", f.resolution], ["cuts", f.cuts], ["cuts / 10s", f.cuts_per_10s], ["b-roll share", f.broll_share_est], ["speech share", f.audio && f.audio.speech_share], ["music likely", f.audio && String(f.audio.music_or_sfx_likely ?? "")], ["analyzed in", x.wall_s && x.wall_s + "s"]])}</div>
+    </aside>
+    <main>
+      <button class="x" onclick="document.getElementById('dlg').close()" aria-label="Close">&times;</button>
+      <div class="sec"><h3>Hook</h3>${kv([["type", hook.type], ["spoken", hook.spoken], ["on screen", hook.on_screen], ["visual", hook.visual]])}</div>
+      <div class="sec"><h3>Why it works</h3><div>${esc(a.why_it_works || "")}</div></div>
+      ${tk.insight || tk.action ? `<div class="sec"><h3>Takeaway for you</h3>${kv([["area", tk.area], ["insight", tk.insight], ["try this", tk.action]])}</div>` : ""}
+      <div class="sec"><h3>Format</h3>${kv([["format", a.format], ["setting", a.setting], ["shot types", (a.shot_types || []).join(", ")], ["graphics", a.graphics_motion]])}</div>
+      <div class="sec"><h3>Call to action</h3>${kv([["giveaway", g.offered ? `comment "${g.keyword}" for ${g.what_they_get || "?"}` : "none"], ["spoken", cta.spoken], ["on screen", cta.on_screen], ["link / follow", cta.link_or_follow]])}${ev}</div>
+      ${beats ? `<div class="sec"><h3>Structure</h3><div class="beats">${beats}</div></div>` : ""}
+      ${frames ? `<div class="sec"><h3>Frames</h3><table><tr><th>t</th><th>shot</th><th>on-screen text</th></tr>${frames}</table></div>` : ""}
+      ${x.transcript && x.transcript.text ? `<div class="sec"><h3>Transcript (${esc(x.transcript.language || "?")})</h3><div>${esc(x.transcript.text)}</div></div>` : ""}
+      <div class="sec"><button class="btn" id="rawBtn">Show raw JSON</button><pre class="json" id="raw" hidden></pre></div>
+    </main></div>`;
+  $("rawBtn").onclick = () => { const p = $("raw"); if (!p.innerHTML) p.innerHTML = jsonHtml(x); p.hidden = !p.hidden; };
+  $("dlg").showModal();
+}
+$("dlg").addEventListener("click", (e) => { if (e.target === $("dlg")) $("dlg").close(); });
+
+let startTab = "live";
+try { startTab = localStorage.getItem("rs.tab") || "live"; } catch (e) {}
+show(startTab);
+poll();
+</script>
+</body>
+</html>

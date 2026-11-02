@@ -25,7 +25,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from . import media
+from . import live, media
 from . import model as _model
 from .backends import asr as _asr
 from .backends import ocr as _ocr
@@ -51,6 +51,7 @@ VIEWER_CONTEXT = os.environ.get("REEL_SCROLLER_CONTEXT", "a viewer who saved it 
 
 def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
+    live.event(msg)
 
 
 # ---------------------------------------------------------------- input / state
@@ -289,8 +290,13 @@ def prepare_apify_batch(batch: list[dict], out_root: Path, work_parent: Path, to
 
 
 def vlm_ask(vision, label: str, prompt: str, image, max_tokens: int):
-    """One vision-model call. `label` is only for debugging."""
-    return vision.ask(prompt, image, max_tokens=max_tokens)
+    """One vision-model call. `label` names it in the dashboard log."""
+    name = _model.CHOICE.vlm if _model.CHOICE else "vlm"
+    live.stage(f"{label}...")
+    t0 = time.time()
+    out = vision.ask(prompt, image, max_tokens=max_tokens)
+    live.event(f"{label} {time.time() - t0:.1f}s", name)
+    return out
 
 
 FRAME_PROMPT = """This is one frame from an Instagram reel or post slide (t={t}s). Return ONLY a JSON object with keys:
@@ -480,10 +486,12 @@ def turbo_visuals(vision, paths: list[Path], keys: list, captions: list[str], wo
     """OCR every frame, dedupe, one VLM call on a contact sheet. Returns (per-frame rec dicts incl. visual, reel-level overview, timing).
     Raises RuntimeError if the sheet call returns nothing usable (caller falls back to the detailed path)."""
     t0 = time.time()
+    live.stage(f"reading on-screen text ({len(paths)} frames)")
     texts = [ocr_image(p) for p in paths]
     hashes = [dhash_bits(p) for p in paths]
     t_ocr = time.time() - t0
     uniq, rep = dedupe_frames(hashes, texts)
+    live.event(f"ocr {t_ocr:.1f}s, {len(uniq)} unique of {len(paths)} frames", "ocr")
     sheet = make_contact_sheet([(paths[i], captions[i]) for i in uniq], work / "_sheet.jpg")
     ocr_ref = "\n".join(f"#{n + 1}: {texts[i][:160] or '(none)'}" for n, i in enumerate(uniq))
     t1 = time.time()
@@ -765,6 +773,9 @@ def analyze_video(vision, video: Path, work: Path, collections: list[str], meta:
     if FAST and len(later_t) > FAST_LATER:
         step = len(later_t) / FAST_LATER
         later_t = [later_t[int(i * step)] for i in range(FAST_LATER)]
+    live.stage("extracting frames", duration_s=dur, resolution=f"{pr['width']}x{pr['height']}", cuts=len(cuts),
+               cuts_per_10s=round(len(cuts) / dur * 10, 1) if dur else None)
+    live.event(f"{dur:.1f}s {pr['width']}x{pr['height']}, scene detect: {len(cuts)} cuts, extract {len(hook_t) + len(later_t)} frames", "ffmpeg")
     t_mark = time.time()
     tr_box: dict = {}
     wth = None
@@ -785,6 +796,7 @@ def analyze_video(vision, video: Path, work: Path, collections: list[str], meta:
         try:
             afiles = archive_extract(video, times, work / "_arch")
             frames = [(t, work / "_arch" / afiles[round(t, 2)]) for t in times if round(t, 2) in afiles]
+            live.frames(frames)
             if frames:
                 if wth:
                     wth.join()  # no concurrent model work
@@ -796,6 +808,7 @@ def analyze_video(vision, video: Path, work: Path, collections: list[str], meta:
             frecs = None
     if frecs is None:
         frames = extract_frames_at(video, hook_t, work, "h") + extract_frames_at(video, later_t, work, "s")
+        live.frames(frames)
         frecs = ask_frames(vision, frames)
         afiles = archive_extract(video, [t for t, _ in frames], work / "_arch") if ARCHIVE else {}
     elif not ARCHIVE:
@@ -809,6 +822,9 @@ def analyze_video(vision, video: Path, work: Path, collections: list[str], meta:
         tr = tr_box["tr"]
     else:
         tr = transcribe_words(video) if pr["has_audio"] else {"language": None, "text": "", "segments": [], "words": []}
+    live.transcript(tr)
+    if pr["has_audio"]:
+        live.event(f"{tr.get('language') or '?'}, {len(tr['words'])} words", f"whisper {_model.CHOICE.whisper if _model.CHOICE else ''}".strip())
     audio = non_speech_energy(video, tr["words"], dur) if pr["has_audio"] else {"has_audio": False}
 
     # b-roll share: time-weighted share of sampled frames with no person speaking to camera
@@ -858,6 +874,7 @@ def analyze_carousel(vision, slides: list[Path], collections: list[str], meta: d
     recs = None
     overview = None
     turbo_t: dict = {}
+    live.frames([(i, s) for i, s in enumerate(slides, 1)])
     if TURBO and slides:
         try:
             with tempfile.TemporaryDirectory() as td:
@@ -920,6 +937,8 @@ def finalize(out_root: Path, item: dict, meta: dict, rec: dict, key: Path | None
                format=a.get("format"), hook=a.get("hook"), cta=a.get("cta"), why_it_works=a.get("why_it_works"),
                cuts_per_10s=(rec.get("facts") or {}).get("cuts_per_10s"), comment_words=rec.get("comment_words_detected"))
     append_jsonl(out_root / "study_index.jsonl", idx)
+    live.event(f"wrote study/{item['code']}.json", "write")
+    live.item_done(item["code"], secs)
 
 
 def rollup(out_root: Path) -> int:
@@ -944,6 +963,7 @@ def rollup(out_root: Path) -> int:
 def analyze_unit(vision, unit: dict, out_root: Path) -> float:
     """Analyze one prepared unit, write outputs, delete its media. Returns wall seconds."""
     item, meta, work = unit["item"], unit["meta"], unit["work"]
+    live.item_start(item, meta)
     t0 = time.time()
     try:
         if item["kind"] == "carousel":
@@ -1005,7 +1025,30 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--archive", metavar="DIR", help="keep media, frames and manifest per reel in DIR/<code>/")
     ap.add_argument("--batch", type=int, default=15, help="Apify batch size")
     ap.add_argument("--apify-batch-cap-usd", type=float, default=2.0, help="hard spending cap per Apify batch")
+    ap.add_argument("--dash", action="store_true", help="open the live dashboard in your browser while it runs (localhost only)")
+    ap.add_argument("--port", type=int, default=8765, help="dashboard port (with --dash)")
     return ap
+
+
+def start_live(a, out_root: Path, mode: str, total: int) -> None:
+    """Record live progress for the dashboard and, with --dash, serve it."""
+    c = _model.choice()
+    live.begin(out_root, mode, total, {"backend": c.backend, "vlm": c.vlm, "asr": c.asr, "whisper": c.whisper,
+                                       "ocr": _ocr.ocr_backend(), "size": c.size})
+    if a.dash:
+        from . import dashboard
+        dashboard.serve_in_background(out_root, a.port)
+
+
+def finish_live(a) -> None:
+    live.end()
+    if a.dash:
+        print(f"dashboard still open at http://127.0.0.1:{a.port}  (Ctrl+C to quit)", flush=True)
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            pass
 
 
 def load_vision():
@@ -1045,11 +1088,13 @@ def main(argv: list[str] | None = None) -> int:
         except VisionError as e:
             print(e)
             return 3
+        start_live(a, out_root, "local", len(a.local))
         try:
             for path in a.local:
                 src = Path(path).expanduser()
                 code = re.sub(r"[^A-Za-z0-9_-]", "_", src.stem)
                 item = {"url": f"local:{src.name}", "code": code, "collections": [c for c in a.local_collections.split("|") if c], "kind": "reel"}
+                live.item_start(item, {})
                 t0 = time.time()
                 work = Path(tempfile.mkdtemp(dir=work_parent))
                 try:
@@ -1057,11 +1102,15 @@ def main(argv: list[str] | None = None) -> int:
                     if ARCHIVE:
                         rec["archive"] = str(archive_commit(ARCHIVE, item, {}, rec, work, [src], keep_source=True))
                     finalize(out_root, item, {}, rec, key, time.time() - t0)
+                except Exception as e:
+                    live.item_failed(code, f"{type(e).__name__}: {e}")
+                    raise
                 finally:
                     shutil.rmtree(work, ignore_errors=True)
                 print(f"{code}: {time.time() - t0:.1f}s")
         finally:
             shutil.rmtree(work_parent, ignore_errors=True)
+        finish_live(a)
         return 0
 
     inp = Path(a.input) if a.input else out_root / "urls.tsv"
@@ -1097,6 +1146,7 @@ def main(argv: list[str] | None = None) -> int:
     except VisionError as e:
         print(e)
         return 3
+    start_live(a, out_root, "apify", len(todo))
     q: queue.Queue = queue.Queue(maxsize=1)  # bounded: at most ~2 batches of media on disk
     stop = threading.Event()
     th = threading.Thread(target=producer, daemon=True, args=(todo, q, stop, out_root, work_parent, a.batch, a.apify_batch_cap_usd, token))
@@ -1114,6 +1164,7 @@ def main(argv: list[str] | None = None) -> int:
                         append_jsonl(study / "_failed.jsonl", {"code": item["code"], "url": item["url"], "error": unit["error"],
                                                                "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
                         print(f"[{n}/{len(todo)}] {item['code']} FAILED (not retried): {unit['error'][:140]}", flush=True)
+                        live.item_failed(item["code"], unit["error"])
                         continue
                     try:
                         secs = analyze_unit(vision, unit, out_root)
@@ -1122,6 +1173,7 @@ def main(argv: list[str] | None = None) -> int:
                                                                "error": f"{type(e).__name__}: {e}"[:300],
                                                                "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
                         print(f"[{n}/{len(todo)}] {item['code']} FAILED (not retried): {type(e).__name__}: {str(e)[:140]}", flush=True)
+                        live.item_failed(item["code"], f"{type(e).__name__}: {e}")
                         continue
                     done_n += 1
                     print(f"[{n}/{len(todo)}] {item['code']} analyzed in {secs:.0f}s", flush=True)
@@ -1135,6 +1187,7 @@ def main(argv: list[str] | None = None) -> int:
         stop.set()
         shutil.rmtree(work_parent, ignore_errors=True)
     print(f"analyzed {done_n}")
+    finish_live(a)
     return rc
 
 

@@ -182,6 +182,8 @@ open an issue if Instagram changed it. HTML exports work too. Any text file with
 | `--fast` | Fewer frames and tokens |
 | `--detailed` | One model call per frame (slower, used automatically if the contact-sheet call fails) |
 | `--rollup` | Rebuild `study_index.jsonl` from `study/*.json` |
+| `--dash` | Open the live dashboard in your browser while it runs (see Dashboard) |
+| `--port N` | Dashboard port (default 8765) |
 
 ### Environment variables
 
@@ -200,6 +202,29 @@ open an issue if Instagram changed it. HTML exports work too. Any text file with
 | `APIFY_TOKEN` | Apify token for downloading media |
 | `REEL_SCROLLER_CONTEXT` | one phrase describing you (e.g. "a freelance video editor") so the verdict speaks to your goals |
 | `REEL_SCROLLER_WORKFLOW_RE` | regex of collection names whose reels also get a `workflow` field |
+
+## Dashboard
+
+A local web page to watch a run live and browse everything analyzed so far. It runs on your machine
+(`127.0.0.1` only), needs no extra install, and only reads your `--out-root` folder.
+
+```bash
+# run and watch in one command; the page opens in your browser
+uv run reel-scroller study --local clip.mp4 --dash
+
+# or open it on its own: browse the library, or watch a run started in another terminal
+uv run reel-scroller dash --out-root ./out
+```
+
+- **Live**: a phone preview cycling through the frames being analyzed, the frame strip with timestamps,
+  the run log (ffmpeg, OCR, each vision-model call with its time, whisper), the last finished reel's
+  `analysis.json`, the transcript with word timings, and progress, seconds per reel, ETA, GPU or CPU and RAM use.
+- **Library**: every analyzed reel as a card (hook, format, giveaway keyword), with search, a format filter,
+  "giveaways only", and sorting by newest, views or cut speed. Click a card for the full breakdown: hook,
+  why it works, your takeaway, call to action with evidence, structure beats, frames, transcript and raw JSON.
+
+During a run, `study` writes the live state to `<out-root>/_live/`. It is rebuilt at the start of every run
+and is never needed afterwards.
 
 ## Backends
 
