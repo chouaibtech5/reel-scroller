@@ -1,17 +1,29 @@
 [project]
 name = "reel-watcher"
-version = "0.1.0"
-description = "Have a local AI model watch the Instagram reels you saved and write structured notes. Apple Silicon, analysis is local."
+version = "0.2.0"
+description = "Have a local AI model watch the Instagram reels you saved and write structured notes. Windows, Linux and macOS; analysis is local."
 readme = "README.md"
 license = { text = "MIT" }
-authors = [{ name = "Jacob Bruce" }]
+authors = [{ name = "Jacob Bruce" }, { name = "Chouaib" }]
 requires-python = ">=3.11"
 dependencies = [
-    "mlx-vlm>=0.7.4",
-    "mlx-whisper>=0.4.3",
     "numpy>=2.0",
     "pillow>=11.0",
-    "pyobjc-framework-Vision>=10.0",
+    "psutil>=6.0",
+    "faster-whisper>=1.1",
+    "rapidocr>=3.0",
+    "onnxruntime>=1.20",
+]
+
+[project.optional-dependencies]
+mac = [
+    "mlx-vlm>=0.7.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-whisper>=0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
+]
+cuda = [
+    "nvidia-cublas-cu12; sys_platform != 'darwin'",
+    "nvidia-cudnn-cu12>=9,<10; sys_platform != 'darwin'",
 ]
 
 [project.scripts]
