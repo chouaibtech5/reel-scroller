@@ -53,7 +53,7 @@ leaves it.
 Clone the repository:
 
 ```bash
-git clone <this repo> reel-scroller && cd reel-scroller
+git clone https://github.com/chouaibtech5/reel-scroller && cd reel-scroller
 ```
 
 ### Windows
