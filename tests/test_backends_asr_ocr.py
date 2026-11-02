@@ -167,6 +167,7 @@ def test_transcribe_words_faster_whisper_caching_and_cuda_fallback(monkeypatch, 
     monkeypatch.setitem(__import__("sys").modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisperModel))
     monkeypatch.setitem(__import__("sys").modules, "ctranslate2", types.SimpleNamespace(get_cuda_device_count=lambda: 1))
     monkeypatch.delenv("REEL_SCROLLER_DEVICE", raising=False)
+    monkeypatch.setattr(asr, "_decode_audio", lambda video: f"samples of {video}")
 
     vid = tmp_path / "reel.mp4"
     res1 = asr.transcribe_words(vid, "small", backend="faster-whisper")
@@ -174,7 +175,7 @@ def test_transcribe_words_faster_whisper_caching_and_cuda_fallback(monkeypatch, 
     assert "cuda" in err.lower()
     assert init_calls == [("small", "cuda", "float16"), ("small", "cpu", "int8")]
     assert transcribe_calls[-1] == (
-        str(vid),
+        f"samples of {vid}",
         {"word_timestamps": True, "condition_on_previous_text": False, "vad_filter": False},
     )
     assert res1 == {
@@ -394,6 +395,7 @@ def test_faster_whisper_cuda_fails_during_decoding(monkeypatch, tmp_path, capsys
     monkeypatch.setattr(asr, "_MODELS", {})
     monkeypatch.setitem(__import__("sys").modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisperModel))
     monkeypatch.setenv("REEL_SCROLLER_DEVICE", "cuda")
+    monkeypatch.setattr(asr, "_decode_audio", lambda video: None)
     assert asr.transcribe_words(tmp_path / "a.mp4", "small")["text"] == "hi"
     assert asr.transcribe_words(tmp_path / "b.mp4", "small")["text"] == "hi"
     assert inits == ["cuda", "cpu"]
@@ -408,3 +410,23 @@ def test_ocr_image_engine_error_returns_empty(monkeypatch, tmp_path):
         raise ImportError("No module named 'rapidocr'")
     monkeypatch.setattr(ocr, "_get_rapid_engine", broken)
     assert ocr.ocr_image(tmp_path / "f.jpg") == ""
+
+
+def test_decode_audio_uses_ffmpeg_not_pyav(monkeypatch):
+    """faster-whisper's PyAV decoder broke on PyAV 19 (metadata_errors); we decode with ffmpeg instead."""
+    import struct
+    calls = []
+
+    class P:
+        returncode, stdout, stderr = 0, struct.pack("<3h", 0, 16384, -32768), b""
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return P()
+    monkeypatch.setattr("subprocess.run", fake_run)
+    a = asr._decode_audio("clip.mp4")
+    assert calls[0][:2] == ["ffmpeg", "-nostdin"] and "16000" in calls[0] and "s16le" in calls[0]
+    assert a.dtype.name == "float32" and list(a) == [0.0, 0.5, -1.0]
+    P.returncode, P.stderr = 1, b"clip.mp4: Invalid data found"
+    with pytest.raises(RuntimeError, match="Invalid data"):
+        asr._decode_audio("clip.mp4")

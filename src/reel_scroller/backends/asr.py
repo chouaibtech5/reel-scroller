@@ -97,9 +97,21 @@ def _get_whisper_model(model: str, device: str):
         return _MODELS[(model, "cpu")]
 
 
+def _decode_audio(video, sample_rate: int = 16000):
+    """Mono float32 samples via ffmpeg. faster-whisper's own decoder (PyAV) breaks across PyAV releases."""
+    import subprocess
+
+    import numpy as np
+    p = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(video), "-vn", "-ac", "1", "-ar", str(sample_rate),
+                        "-f", "s16le", "-"], capture_output=True)
+    if p.returncode != 0:
+        raise RuntimeError(f"ffmpeg could not read audio: {p.stderr.decode('utf-8', 'replace').strip()[-300:]}")
+    return np.frombuffer(p.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+
+
 def _faster_whisper(video, model: str, device: str) -> dict:
     wm = _get_whisper_model(model, device)
-    segs, info = wm.transcribe(str(video), word_timestamps=True, condition_on_previous_text=False, vad_filter=False)
+    segs, info = wm.transcribe(_decode_audio(video), word_timestamps=True, condition_on_previous_text=False, vad_filter=False)
     return _map_segments(segs, getattr(info, "language", None))  # segs is lazy: decoding happens here
 
 
