@@ -1,42 +1,79 @@
 """Model selection logic (no downloads, no model loading)."""
 import pytest
 
-from reel_watcher.model import SIZES, select_models
+from reel_watcher import media
+from reel_watcher.backends import hw
+from reel_watcher.model import VLM_MODELS, default_backend, select_models
 
 GB = 1024**3
+PC = {"env": {}, "apple_silicon": False}
 
 
-def test_auto_small_below_32gb():
-    assert select_models(env={}, ram_bytes=16 * GB)[2] == "small"
-    assert select_models(env={}, ram_bytes=24 * GB)[2] == "small"
+def test_auto_size_rules():
+    assert hw.auto_size(64 * GB, 0, apple_silicon=False) == "small"  # lots of RAM, no GPU: 32B on CPU is too slow
+    assert hw.auto_size(16 * GB, 24 * GB, apple_silicon=False) == "large"
+    assert hw.auto_size(16 * GB, 12 * GB, apple_silicon=False) == "small"
+    assert hw.auto_size(32 * GB, 0, apple_silicon=True) == "large"
+    assert hw.auto_size(16 * GB, 0, apple_silicon=True) == "small"
 
 
-def test_auto_large_at_32gb_and_up():
-    assert select_models(env={}, ram_bytes=32 * GB)[2] == "large"
-    assert select_models(env={}, ram_bytes=64 * GB)[0] == SIZES["large"][0]
+def test_default_backend():
+    assert default_backend({}, apple_silicon=False) == "ollama"
+    assert default_backend({}, apple_silicon=True, mlx_installed=True) == "mlx"
+    assert default_backend({}, apple_silicon=True, mlx_installed=False) == "ollama"
+    assert default_backend({"REEL_WATCHER_BACKEND": "openai"}, apple_silicon=True, mlx_installed=True) == "openai"
 
 
-def test_explicit_size_beats_ram():
-    assert select_models("large", env={}, ram_bytes=8 * GB)[2] == "large"
-    assert select_models("small", env={}, ram_bytes=128 * GB) == (*SIZES["small"], "small")
+def test_auto_on_a_pc():
+    c = select_models(ram_bytes=16 * GB, vram_bytes=8 * GB, **PC)
+    assert (c.backend, c.vlm, c.size) == ("ollama", VLM_MODELS["ollama"]["small"], "small")
+    assert c.asr == "faster-whisper" and c.whisper == "small"
+    c = select_models(ram_bytes=16 * GB, vram_bytes=24 * GB, **PC)
+    assert (c.vlm, c.size, c.whisper) == (VLM_MODELS["ollama"]["large"], "large", "large-v3-turbo")
+
+
+def test_explicit_size_and_backend():
+    assert select_models("large", vram_bytes=0, ram_bytes=8 * GB, **PC).size == "large"
+    c = select_models("small", backend="mlx", **PC)
+    assert c.vlm == VLM_MODELS["mlx"]["small"]
 
 
 def test_env_size_and_flag_precedence():
-    assert select_models(env={"REEL_WATCHER_MODEL": "small"}, ram_bytes=64 * GB)[2] == "small"
-    assert select_models("large", env={"REEL_WATCHER_MODEL": "small"})[2] == "large"
+    assert select_models(env={"REEL_WATCHER_MODEL": "small"}, vram_bytes=48 * GB, apple_silicon=False).size == "small"
+    assert select_models("large", env={"REEL_WATCHER_MODEL": "small"}, apple_silicon=False).size == "large"
 
 
-def test_model_override_keeps_whisper_of_size():
-    vlm, whisper, size = select_models("small", model="org/custom", env={})
-    assert (vlm, whisper, size) == ("org/custom", SIZES["small"][1], "small")
+def test_model_overrides():
+    assert select_models("small", model="llava:13b", **PC).vlm == "llava:13b"
+    env = {"REEL_WATCHER_VLM": "a:b", "REEL_WATCHER_WHISPER": "medium"}
+    c = select_models("small", env=env, apple_silicon=False)
+    assert (c.vlm, c.whisper) == ("a:b", "medium")
+    assert select_models("small", model="x:y", env={"REEL_WATCHER_VLM": "a:b"}, apple_silicon=False).vlm == "x:y"
 
 
-def test_env_repo_overrides():
-    vlm, whisper, _ = select_models("small", env={"REEL_WATCHER_VLM": "a/b", "REEL_WATCHER_WHISPER": "c/d"})
-    assert (vlm, whisper) == ("a/b", "c/d")
-    assert select_models("small", model="x/y", env={"REEL_WATCHER_VLM": "a/b"})[0] == "x/y"
-
-
-def test_bad_size():
+def test_bad_size_and_backend():
     with pytest.raises(ValueError):
-        select_models("huge", env={})
+        select_models("huge", **PC)
+    with pytest.raises(ValueError):
+        select_models("small", backend="cloud", **PC)
+
+
+def test_gpu_vram_parses_nvidia_smi(monkeypatch):
+    class P:
+        returncode, stdout = 0, "8192\n24576\n"
+    monkeypatch.setattr(hw.shutil, "which", lambda _: "nvidia-smi")
+    monkeypatch.setattr(hw.subprocess, "run", lambda *a, **k: P())
+    assert hw.gpu_vram_bytes() == 24576 * 1024**2
+    P.returncode = 9  # "GPU is lost" and similar driver errors
+    assert hw.gpu_vram_bytes() == 0
+    monkeypatch.setattr(hw.shutil, "which", lambda _: None)
+    assert hw.gpu_vram_bytes() == 0
+
+
+def test_preflight_hint_per_os(monkeypatch):
+    monkeypatch.setattr(media.shutil, "which", lambda _: None)
+    assert "winget" in media.preflight("win32")
+    assert "apt" in media.preflight("linux")
+    assert "brew" in media.preflight("darwin")
+    monkeypatch.setattr(media.shutil, "which", lambda b: "/bin/" + b)
+    assert media.preflight("win32") == ""

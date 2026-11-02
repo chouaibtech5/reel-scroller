@@ -31,8 +31,8 @@ def test_apify_batch_mapping(tmp_path, monkeypatch):
     img.write_bytes(b"y")
     data = [
         {"shortCode": "A1", "url": "u", "caption": "cap", "ownerUsername": "own", "likesCount": -1, "videoViewCount": 50,
-         "commentsCount": 2, "timestamp": "2026-05-01T10:00:00.000Z", "videoUrl": f"file://{vid}"},
-        {"shortCode": "B2", "type": "Sidecar", "childPosts": [{"displayUrl": f"file://{img}"}, {"displayUrl": f"file://{img}"}]},
+         "commentsCount": 2, "timestamp": "2026-05-01T10:00:00.000Z", "videoUrl": vid.as_uri()},
+        {"shortCode": "B2", "type": "Sidecar", "childPosts": [{"displayUrl": img.as_uri()}, {"displayUrl": img.as_uri()}]},
     ]
     calls = []
 

@@ -1,9 +1,10 @@
 """Study saved Instagram reels locally and keep compact, structured summaries.
 
 Per reel: fetch media through Apify (the only network step), then analyze on
-this machine: ffmpeg scene cuts, Apple Vision OCR, near-duplicate frame
-merging, ONE vision-model call on a labeled contact sheet, mlx-whisper
-transcript with word timing, and giveaway ("comment X", "DM me X", "link in
+this machine: ffmpeg scene cuts, OCR (RapidOCR, or Apple Vision on a Mac),
+near-duplicate frame merging, ONE vision-model call on a labeled contact sheet
+(Ollama, a local OpenAI-compatible server, or MLX), faster-whisper transcript
+with word timing, and giveaway ("comment X", "DM me X", "link in
 bio") detection. One JSON per reel is written, plus one small hook frame. With
 --archive DIR the media and every analyzed frame are kept in DIR/<code>/.
 
@@ -26,7 +27,9 @@ from pathlib import Path
 
 from . import media
 from . import model as _model
-from .model import Vision
+from .backends import asr as _asr
+from .backends import ocr as _ocr
+from .backends.vision import VisionError, make_vision
 
 APIFY_ACTOR = os.environ.get("APIFY_ACTOR", "apify~instagram-scraper")
 APIFY_BASE = os.environ.get("APIFY_API_BASE", "https://api.apify.com/v2")
@@ -87,7 +90,7 @@ def failed_codes(study: Path) -> set[str]:
     if not f.exists():
         return set()
     out = set()
-    for l in f.read_text().splitlines():
+    for l in f.read_text(encoding="utf-8").splitlines():
         try:
             out.add(json.loads(l)["code"])
         except (ValueError, KeyError):
@@ -345,34 +348,9 @@ Return ONLY a JSON object with keys:
 
 # ---------------------------------------------------------------- turbo: OCR + dedupe + one contact-sheet VLM call
 
-_OCR_LOCK = threading.Lock()
-_SECRET_RE = re.compile(r"\b(?:sk|pk|ghp|xox[a-z]|AKIA|AIza)[-_A-Za-z0-9]{12,}\b|\b[A-Fa-f0-9]{32,}\b|\b[A-Za-z0-9+/_-]{40,}\b")
-
-
 def ocr_image(path: Path) -> str:
-    """Apple Vision text recognition (accurate), lines top to bottom, joined by spaces. '' when nothing or Vision unavailable."""
-    try:
-        import Vision
-        from Foundation import NSURL, NSDictionary
-    except Exception as e:  # pragma: no cover - depends on venv
-        log(f"OCR unavailable ({e}); on_screen_text stays empty")
-        return ""
-    with _OCR_LOCK:
-        req = Vision.VNRecognizeTextRequest.alloc().init()
-        req.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
-        req.setUsesLanguageCorrection_(True)
-        h = Vision.VNImageRequestHandler.alloc().initWithURL_options_(NSURL.fileURLWithPath_(str(path)), NSDictionary.dictionary())
-        ok = h.performRequests_error_([req], None)
-        if not (ok[0] if isinstance(ok, tuple) else ok):
-            return ""
-        obs = sorted(req.results() or [], key=lambda o: -o.boundingBox().origin.y)
-        lines = []
-        for o in obs:
-            c = o.topCandidates_(1)
-            if c:
-                lines.append(str(c[0].string()))
-    txt = _SECRET_RE.sub("[redacted]", " ".join(lines))
-    return re.sub(r"\s+", " ", txt).strip()[:500]
+    """On-screen text, lines top to bottom, secrets redacted. '' when nothing or no OCR backend."""
+    return _ocr.ocr_image(path)
 
 
 def dhash_bits(path: Path, size: int = 8) -> int:
@@ -573,17 +551,8 @@ def pick_later_times(cuts: list[float], duration: float) -> list[float]:
 
 
 def transcribe_words(video: Path) -> dict:
-    import mlx_whisper
-    r = mlx_whisper.transcribe(str(video), path_or_hf_repo=_model.WHISPER_MODEL, word_timestamps=True,
-                               condition_on_previous_text=False, no_speech_threshold=0.6, verbose=None)
-    words, segs = [], []
-    for s in r.get("segments", []):
-        if s.get("no_speech_prob", 0) >= 0.6 or not s["text"].strip():
-            continue
-        segs.append({"start": round(s["start"], 2), "end": round(s["end"], 2), "text": s["text"].strip()})
-        for w in s.get("words", []) or []:
-            words.append({"w": w["word"].strip(), "s": round(w["start"], 2), "e": round(w["end"], 2)})
-    return {"language": r.get("language"), "text": " ".join(s["text"] for s in segs), "segments": segs, "words": words}
+    c = _model.choice()
+    return _asr.transcribe_words(video, c.whisper, c.asr)
 
 
 def non_speech_energy(video: Path, words: list[dict], duration: float) -> dict:
@@ -799,7 +768,7 @@ def analyze_video(vision, video: Path, work: Path, collections: list[str], meta:
     t_mark = time.time()
     tr_box: dict = {}
     wth = None
-    if TURBO and pr["has_audio"]:  # whisper (mlx) overlaps frame extraction + OCR (CPU/ANE); joined before the VLM call
+    if TURBO and pr["has_audio"]:  # whisper overlaps frame extraction + OCR; joined before the VLM call so they do not share the GPU
         def _whisper():
             try:
                 tr_box["tr"] = transcribe_words(video)
@@ -818,7 +787,7 @@ def analyze_video(vision, video: Path, work: Path, collections: list[str], meta:
             frames = [(t, work / "_arch" / afiles[round(t, 2)]) for t in times if round(t, 2) in afiles]
             if frames:
                 if wth:
-                    wth.join()  # no concurrent mlx work
+                    wth.join()  # no concurrent model work
                     # whisper finished: its time is not part of the sheet call
                 frecs, overview, turbo_t = turbo_visuals(vision, [p_ for _, p_ in frames], [round(t, 2) for t, _ in frames],
                                                          [f"{t:.1f}s" for t, _ in frames], work, "reel", "timestamp")
@@ -944,7 +913,7 @@ def finalize(out_root: Path, item: dict, meta: dict, rec: dict, key: Path | None
                 "keyframe": kf, "analyzed_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "wall_s": round(secs, 1)})
     tmp = study / f".{item['code']}.json.tmp"
     tmp.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.rename(study / f"{item['code']}.json")
+    tmp.replace(study / f"{item['code']}.json")  # replace, not rename: Windows refuses to rename over a file
     idx = {k: rec.get(k) for k in ("code", "url", "kind", "collections", "keyframe", "wall_s")}
     a = rec.get("analysis") if isinstance(rec.get("analysis"), dict) else {}
     idx.update(author=meta.get("author"), views=meta.get("views"), likes=meta.get("likes"), post_date=meta.get("post_date"),
@@ -958,7 +927,7 @@ def rollup(out_root: Path) -> int:
     n = 0
     lines = []
     for f in sorted(study.glob("*.json")):
-        r = json.loads(f.read_text())
+        r = json.loads(f.read_text(encoding="utf-8"))
         a = r.get("analysis") if isinstance(r.get("analysis"), dict) else {}
         m = r.get("post") or {}
         lines.append(json.dumps({"code": r["code"], "url": r["url"], "kind": r.get("kind"), "collections": r.get("collections"),
@@ -968,7 +937,7 @@ def rollup(out_root: Path) -> int:
                                  "why_it_works": a.get("why_it_works"), "cuts_per_10s": (r.get("facts") or {}).get("cuts_per_10s"),
                                  "comment_words": r.get("comment_words_detected")}, ensure_ascii=False))
         n += 1
-    (out_root / "study_index.jsonl").write_text("\n".join(lines) + ("\n" if lines else ""))
+    (out_root / "study_index.jsonl").write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
     return n
 
 
@@ -1027,8 +996,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--rollup", action="store_true", help="rebuild study_index.jsonl from study/*.json and exit")
     ap.add_argument("--collections", default="", help="priority terms, comma separated, matched against collection names")
     ap.add_argument("--only-priority", action="store_true", help="with --collections: skip non-matching items")
-    ap.add_argument("--model-size", choices=["small", "large"], help="small: 7B VLM + whisper-small for 16 GB Macs; large: 35B. Default auto by RAM (env REEL_WATCHER_MODEL)")
-    ap.add_argument("--model", help="exact Hugging Face id of an MLX vision-language model (overrides --model-size)")
+    ap.add_argument("--backend", choices=list(_model.BACKENDS),
+                    help="vision model backend: ollama (default), openai (local OpenAI-compatible server), mlx (Apple Silicon). Env REEL_WATCHER_BACKEND")
+    ap.add_argument("--model-size", choices=["small", "large"], help="small: 7B vision model + whisper-small; large: 32B+ and whisper-large-v3-turbo. Default auto by GPU/RAM (env REEL_WATCHER_MODEL)")
+    ap.add_argument("--model", help="exact vision model name for the backend, e.g. qwen2.5vl:7b for Ollama (overrides --model-size)")
     ap.add_argument("--fast", action="store_true", help="fewer frames and tokens")
     ap.add_argument("--detailed", action="store_true", help="one VLM call per frame instead of one contact sheet")
     ap.add_argument("--archive", metavar="DIR", help="keep media, frames and manifest per reel in DIR/<code>/")
@@ -1037,11 +1008,18 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def load_vision():
+    """Log the chosen setup and connect to (or load) the vision model. Raises VisionError with a fix hint."""
+    c = _model.choice()
+    log(f"vision: {c.backend} {c.vlm} | speech: {c.asr} {c.whisper} | ocr: {_ocr.ocr_backend()} | size: {c.size}")
+    return make_vision(c.backend, c.vlm)
+
+
 def main(argv: list[str] | None = None) -> int:
     global FAST, ARCHIVE, TURBO
     a = build_parser().parse_args(argv)
     FAST = a.fast
-    _model.configure(a.model_size, a.model)
+    _model.configure(a.model_size, a.model, a.backend)
     TURBO = not a.detailed
     if a.archive:
         ARCHIVE = Path(a.archive).expanduser()
@@ -1062,7 +1040,11 @@ def main(argv: list[str] | None = None) -> int:
             print(missing)
             return 2
         work_parent.mkdir(exist_ok=True)
-        vision = Vision()
+        try:
+            vision = load_vision()
+        except VisionError as e:
+            print(e)
+            return 3
         try:
             for path in a.local:
                 src = Path(path).expanduser()
@@ -1110,7 +1092,11 @@ def main(argv: list[str] | None = None) -> int:
 
     import queue
     work_parent.mkdir(exist_ok=True)
-    vision = Vision()
+    try:
+        vision = load_vision()
+    except VisionError as e:
+        print(e)
+        return 3
     q: queue.Queue = queue.Queue(maxsize=1)  # bounded: at most ~2 batches of media on disk
     stop = threading.Event()
     th = threading.Thread(target=producer, daemon=True, args=(todo, q, stop, out_root, work_parent, a.batch, a.apify_batch_cap_usd, token))
@@ -1141,7 +1127,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"[{n}/{len(todo)}] {item['code']} analyzed in {secs:.0f}s", flush=True)
                 continue
             if kind == "fatal":
-                (out_root / "FATAL").write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {payload}\n")
+                (out_root / "FATAL").write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {payload}\n", encoding="utf-8")
                 print(f"FATAL (no retry): {payload}")
                 rc = 5
             break
