@@ -10,6 +10,8 @@ commands:
   study    fetch (Apify) and analyze saved reels locally; --local analyzes mp4 files; dry run by default
   advice   render an advice library JSON to a static HTML page (optional)
   dash     local dashboard: watch a run live and browse analyzed reels
+  scout    find your watchlist creators' best new reels and queue them for study
+  ideas    turn studied reels into patterns and new reel ideas for your niche
 
 Run `reel-scroller <command> --help` for options."""
 
@@ -27,6 +29,10 @@ def main() -> int:
         from .advice_library import main as run
     elif cmd == "dash":
         from .dashboard import main as run
+    elif cmd == "scout":
+        from .scout import main as run
+    elif cmd == "ideas":
+        from .ideas import main as run
     else:
         print(USAGE)
         return 2

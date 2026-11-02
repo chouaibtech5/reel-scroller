@@ -149,3 +149,10 @@ def test_server_refuses_paths_outside_its_folders(server):
 def test_card_tolerates_a_parse_error_analysis():
     c = dashboard.card({"code": "X", "analysis": {"parse_error": True, "raw": "?"}})
     assert c["code"] == "X" and c["format"] is None and c["giveaway"] is None
+
+
+def test_server_serves_latest_ideas(server, tmp_path):
+    assert json.loads(get(server + "/api/ideas")[2]) == {}
+    (tmp_path / "ideas").mkdir()
+    (tmp_path / "ideas" / "latest.json").write_text(json.dumps({"ideas": [{"title": "T", "hook": "H"}]}), encoding="utf-8")
+    assert json.loads(get(server + "/api/ideas")[2])["ideas"][0]["title"] == "T"

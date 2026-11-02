@@ -168,6 +168,8 @@ def make_handler(out_root: Path):
                                   "sys": system_stats(), "now": time.time()})
             if path == "/api/library":
                 return self.json({"reels": library.cards(), "out_root": str(out_root.resolve())})
+            if path == "/api/ideas":
+                return self.json(read_json(out_root / "ideas" / "latest.json") or {})
             m = re.fullmatch(r"/api/reel/([^/]+)", path)
             if m:
                 code = m.group(1)

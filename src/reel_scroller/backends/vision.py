@@ -60,7 +60,16 @@ class OllamaVision(_Base):
         self.host = (host or os.environ.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
         if "://" not in self.host:
             self.host = "http://" + self.host
+        self.temperature = 0.0
+        self.think: bool | None = None  # only sent when set: models without thinking reject the field
         self._check()
+
+    def capabilities(self) -> set[str]:
+        """What Ollama says this model can do (vision, thinking, ...); empty if it cannot tell."""
+        try:
+            return set(_post_json(self.host + "/api/show", {"model": self.model}, timeout=20).get("capabilities") or [])
+        except (urllib.error.URLError, OSError, ValueError):
+            return set()
 
     def _check(self) -> None:
         try:
@@ -77,12 +86,14 @@ class OllamaVision(_Base):
         msg = {"role": "user", "content": text}
         if image:
             msg["images"] = [_b64(image)]
-        options = {"temperature": 0, "num_predict": max_tokens,
+        options = {"temperature": self.temperature, "num_predict": max_tokens,
                    "num_ctx": int(os.environ.get("REEL_SCROLLER_NUM_CTX") or NUM_CTX)}
         if penalty:
             options["repeat_penalty"] = penalty
-        r = _post_json(self.host + "/api/chat", {"model": self.model, "messages": [msg], "stream": False,
-                                                 "format": "json", "options": options, "keep_alive": "30m"})
+        body = {"model": self.model, "messages": [msg], "stream": False, "format": "json", "options": options, "keep_alive": "30m"}
+        if self.think is not None:
+            body["think"] = self.think
+        r = _post_json(self.host + "/api/chat", body)
         return (r.get("message") or {}).get("content") or ""
 
 

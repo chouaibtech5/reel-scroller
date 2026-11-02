@@ -122,11 +122,13 @@ def http_json(method: str, url: str, body: dict | None = None, timeout: int = 12
         return json.loads(r.read().decode() or "null")
 
 
-def apify_fetch(urls: list[str], token: str, cap_usd: float, poll_s: float = 5.0, max_wait_s: float = 900.0) -> tuple[list[dict], dict]:
-    """Run the actor on directUrls, wait, return (dataset items, run summary). One attempt, no retries."""
+def apify_fetch(urls: list[str], token: str, cap_usd: float, poll_s: float = 5.0, max_wait_s: float = 900.0,
+                results_limit: int = 1) -> tuple[list[dict], dict]:
+    """Run the actor on directUrls (posts, or profiles with results_limit > 1), wait, return (dataset items, run summary).
+    One attempt, no retries."""
     q = f"?maxTotalChargeUsd={cap_usd}"
     run = http_json("POST", f"{APIFY_BASE}/acts/{APIFY_ACTOR}/runs{q}",
-                    {"directUrls": urls, "resultsType": "posts", "resultsLimit": 1, "addParentData": False}, token=token)["data"]
+                    {"directUrls": urls, "resultsType": "posts", "resultsLimit": results_limit, "addParentData": False}, token=token)["data"]
     t0 = time.time()
     while run.get("status") in ("READY", "RUNNING"):
         if time.time() - t0 > max_wait_s:

@@ -131,6 +131,28 @@ th { color: var(--dim); font: 11px var(--mono); }
 .btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; font-size: 12px; }
 .quote { border-left: 2px solid var(--accent); padding: 2px 0 2px 10px; color: var(--dim); font-size: 12px; margin: 4px 0; }
 
+/* ideas */
+#ideas { padding: 14px 16px 30px; max-width: 1400px; }
+.ihead { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; margin-bottom: 14px; }
+.ihead h2 { font: 600 16px var(--sans); margin: 0 10px 0 0; }
+.pats { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-bottom: 22px; }
+.pat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.pat b { color: var(--accent); font: 600 12px var(--mono); }
+.pat p { margin: 4px 0 6px; }
+.codes { display: flex; gap: 4px; flex-wrap: wrap; }
+.code { font: 11px var(--mono); padding: 1px 6px; border-radius: 5px; background: var(--panel2); border: 1px solid var(--line); cursor: pointer; color: var(--info); }
+.code:hover { border-color: var(--info); }
+.igrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+.idea { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.idea .num { font: 11px var(--mono); color: var(--faint); }
+.idea h4 { margin: 0; font: 600 15px var(--sans); }
+.idea .hk { border-left: 3px solid var(--accent); padding: 4px 0 4px 10px; font-size: 14px; }
+.idea .ohk { font: 12px var(--mono); color: var(--accent); }
+.idea ol { margin: 0; padding-left: 18px; color: var(--text); }
+.idea .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--dim); }
+.idea .why { font-size: 12px; color: var(--dim); }
+.idea .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: auto; }
+
 @media (max-width: 1100px) {
   #live { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
   #phoneWrap { grid-row: auto; }
@@ -145,7 +167,7 @@ th { color: var(--dim); font: 11px var(--mono); }
 <body>
 <header>
   <div class="brand"><span class="dot" id="liveDot"></span>reel-scroller</div>
-  <nav><button id="tabLive" class="on">Live</button><button id="tabLib">Library</button></nav>
+  <nav><button id="tabLive" class="on">Live</button><button id="tabLib">Library</button><button id="tabIdeas">Ideas</button></nav>
   <div class="chips" id="chips"></div>
 </header>
 <div class="bar"><div id="progress"></div></div>
@@ -189,6 +211,8 @@ th { color: var(--dim); font: 11px var(--mono); }
   <div class="grid" id="grid"></div>
 </section>
 
+<section id="ideas" hidden><div id="ideasBody"></div></section>
+
 <dialog id="dlg"></dialog>
 
 <script>
@@ -218,13 +242,17 @@ function jsonHtml(v, ind = "") {
 function show(tab) {
   $("live").hidden = tab !== "live";
   $("library").hidden = tab !== "lib";
+  $("ideas").hidden = tab !== "ideas";
   $("tabLive").classList.toggle("on", tab === "live");
   $("tabLib").classList.toggle("on", tab === "lib");
+  $("tabIdeas").classList.toggle("on", tab === "ideas");
   if (tab === "lib") loadLibrary();
+  if (tab === "ideas") loadIdeas();
   try { localStorage.setItem("rs.tab", tab); } catch (e) {}
 }
 $("tabLive").onclick = () => show("live");
 $("tabLib").onclick = () => show("lib");
+$("tabIdeas").onclick = () => show("ideas");
 
 /* ---------------- live ---------------- */
 let since = 0, lastCode = null, frameIdx = 0, curFrames = [], curKey = "", stickToBottom = true, lastState = null;
@@ -376,6 +404,48 @@ function renderGrid() {
   document.querySelectorAll(".card").forEach((c) => c.onclick = () => openReel(c.dataset.code));
 }
 ["q", "fmt", "sort", "giveOnly"].forEach((id) => $(id).addEventListener("input", renderGrid));
+
+/* ---------------- ideas ---------------- */
+function ideaText(i) {
+  return [i.title, "", "Hook: " + i.hook, i.on_screen_hook ? "On screen: " + i.on_screen_hook : "", i.format ? "Format: " + i.format : "",
+    "", ...(i.beats || []).map((b, n) => `${n + 1}. ${b}`), "", i.cta ? "CTA: " + i.cta : "", i.why ? "Why: " + i.why : ""].filter((x, n, a) => x || a[n - 1]).join("\n").trim();
+}
+const codeChips = (codes) => `<span class="codes">${(codes || []).map((c) => `<span class="code" data-code="${esc(c)}">${esc(c)}</span>`).join("")}</span>`;
+async function loadIdeas() {
+  const d = await (await fetch("/api/ideas")).json();
+  if (!d || !d.ideas) {
+    $("ideasBody").innerHTML = `<div class="nothing">No ideas yet.<br><br>After a few studies, run<br><br><code>reel-scroller ideas --niche "your niche" --model qwen3:8b</code></div>`;
+    return;
+  }
+  const st = d.stats || {};
+  window._ideas = d.ideas;
+  $("ideasBody").innerHTML = `
+    <div class="ihead"><h2>${d.ideas.length} ideas for ${esc(d.niche || "you")}</h2>
+      <span class="chip">from <b>${st.reels ?? "?"}</b> reels</span>
+      ${st.median_cuts_per_10s != null ? `<span class="chip">median <b>${st.median_cuts_per_10s}</b> cuts/10s</span>` : ""}
+      ${st.comment_giveaways ? `<span class="chip"><b>${st.comment_giveaways}</b> comment giveaways</span>` : ""}
+      <span class="chip model">model <b>${esc(d.model)}</b></span><span class="chip">${esc(d.generated_at)}</span></div>
+    ${d.error ? `<p style="color:var(--bad)">${esc(d.error)}</p>` : ""}
+    ${(d.patterns || []).length ? `<div class="sec"><h3>Patterns in your strongest reels</h3><div class="pats">${d.patterns.map((p) =>
+      `<div class="pat"><b>${esc(p.name)}</b><p>${esc(p.what || "")}</p>${codeChips(p.evidence)}</div>`).join("")}</div></div>` : ""}
+    <div class="sec"><h3>Ideas</h3><div class="igrid">${d.ideas.map((i, n) => `
+      <div class="idea"><span class="num">#${n + 1}${i.pattern ? " · " + esc(i.pattern) : ""}</span>
+        <h4>${esc(i.title)}</h4>
+        <div class="hk">"${esc(i.hook)}"</div>
+        ${i.on_screen_hook ? `<div class="ohk">on screen: ${esc(i.on_screen_hook)}</div>` : ""}
+        ${(i.beats || []).length ? `<ol>${i.beats.map((b) => `<li>${esc(b)}</li>`).join("")}</ol>` : ""}
+        <div class="row">${i.format ? `<span class="tagp">${esc(i.format)}</span>` : ""}${i.cta ? `<span>CTA: ${esc(i.cta)}</span>` : ""}</div>
+        ${i.why ? `<div class="why">${esc(i.why)}</div>` : ""}
+        <div class="foot">${(i.inspired_by || []).length ? `<span class="row">from ${codeChips(i.inspired_by)}</span>` : "<span></span>"}
+          <button class="btn" data-copy="${n}">Copy</button></div>
+      </div>`).join("")}</div></div>`;
+  document.querySelectorAll("#ideasBody .code").forEach((c) => c.onclick = () => openReel(c.dataset.code));
+  document.querySelectorAll("#ideasBody [data-copy]").forEach((b) => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(ideaText(window._ideas[+b.dataset.copy])); b.textContent = "Copied"; }
+    catch (e) { b.textContent = "Copy failed"; }
+    setTimeout(() => b.textContent = "Copy", 1500);
+  });
+}
 
 /* ---------------- detail ---------------- */
 async function openReel(code) {

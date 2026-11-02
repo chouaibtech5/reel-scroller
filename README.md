@@ -203,6 +203,39 @@ open an issue if Instagram changed it. HTML exports work too. Any text file with
 | `REEL_SCROLLER_CONTEXT` | one phrase describing you (e.g. "a freelance video editor") so the verdict speaks to your goals |
 | `REEL_SCROLLER_WORKFLOW_RE` | regex of collection names whose reels also get a `workflow` field |
 
+## Creator watchlist and ideas
+
+Instead of scrolling Instagram yourself, give reel-scroller a list of creators in your niche. It looks at their
+newest public reels, finds the ones that beat that creator's usual views (outliers), studies them, and turns
+what works into new reel ideas for you. It never logs in and never touches the Instagram app.
+
+1. Put one creator per line in a text file (see `examples/creators.txt`).
+2. Scout their newest reels. This is a dry run first; `--run` calls Apify (about $0.002 per post looked at, capped):
+
+```bash
+uv run reel-scroller scout --creators creators.txt --out-root ./out
+uv run reel-scroller scout --creators creators.txt --out-root ./out --run
+```
+
+   Each creator's newest 12 posts are ranked by views divided by that creator's median. Up to 3 reels per creator
+   at 1.5x or more are added to `out/urls.tsv` (skipping anything already studied or queued). Change this with
+   `--per-creator`, `--top` and `--min-outlier`.
+
+3. Study the picks, then generate ideas. Ideas only need a text model, so a small one is fine:
+
+```bash
+uv run reel-scroller study --input out/urls.tsv --out-root ./out --run --dash
+ollama pull qwen3:8b
+uv run reel-scroller ideas --out-root ./out --model qwen3:8b --niche "a creator who makes reels about AI tools"
+```
+
+`ideas` reads every study (strongest first, by outlier score when scout recorded one, else views), finds the patterns
+that repeat, and writes new ideas with a hook, on-screen text, beats, a call to action and the reels that inspired
+each one. Results go to `out/ideas/latest.json` and the **Ideas** tab of the dashboard, where each idea has a copy button.
+Ideas reuse the mechanism of what worked, never a creator's topic or wording. Treat them as drafts.
+
+Run it weekly: `scout --run`, then `study --run`, then `ideas`.
+
 ## Dashboard
 
 A local web page to watch a run live and browse everything analyzed so far. It runs on your machine
@@ -219,6 +252,7 @@ uv run reel-scroller dash --out-root ./out
 - **Live**: a phone preview cycling through the frames being analyzed, the frame strip with timestamps,
   the run log (ffmpeg, OCR, each vision-model call with its time, whisper), the last finished reel's
   `analysis.json`, the transcript with word timings, and progress, seconds per reel, ETA, GPU or CPU and RAM use.
+- **Ideas**: the latest `reel-scroller ideas` result: patterns with their source reels, and idea cards you can copy.
 - **Library**: every analyzed reel as a card (hook, format, giveaway keyword), with search, a format filter,
   "giveaways only", and sorting by newest, views or cut speed. Click a card for the full breakdown: hook,
   why it works, your takeaway, call to action with evidence, structure beats, frames, transcript and raw JSON.

@@ -1,0 +1,4 @@
+# one creator per line: @handle, handle, or profile URL. Lines starting with # are ignored.
+@example_creator_one
+example_creator_two
+https://www.instagram.com/example_creator_three/
