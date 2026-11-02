@@ -1,55 +1,84 @@
-"""Local model wrappers (Apple Silicon, MLX). Models download from Hugging Face on first use.
+"""Model choice and JSON parsing. The backends themselves live in `backends/`.
 
-Model choice (highest priority first):
-  --model <hf id> / REEL_WATCHER_VLM   exact vision-language model repo
-  --model-size small|large / REEL_WATCHER_MODEL
-  auto: small if total RAM < 32 GB, else large
-REEL_WATCHER_WHISPER overrides the whisper repo.
+Choice (highest priority first):
+  --backend / REEL_WATCHER_BACKEND     ollama | openai | mlx (default: mlx on Apple Silicon when installed, else ollama)
+  --model / REEL_WATCHER_VLM           exact vision model name for that backend
+  --model-size / REEL_WATCHER_MODEL    small | large | auto
+  auto: large with an NVIDIA GPU of 20 GB+ or Apple Silicon with 32 GB+ RAM, else small
+Speech to text is chosen in backends/asr.py (REEL_WATCHER_ASR, REEL_WATCHER_WHISPER).
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
-import subprocess
+from typing import NamedTuple
 
-SIZES = {
-    "large": ("mlx-community/Qwen3.6-35B-A3B-4bit", "mlx-community/whisper-large-v3-turbo"),
-    "small": ("mlx-community/Qwen2.5-VL-7B-Instruct-4bit", "mlx-community/whisper-small-mlx"),
+from .backends import hw
+from .backends._util import is_apple_silicon
+
+VLM_MODELS = {
+    "ollama": {"small": "qwen2.5vl:7b", "large": "qwen2.5vl:32b"},
+    "openai": {"small": "qwen2.5-vl-7b-instruct", "large": "qwen2.5-vl-32b-instruct"},
+    "mlx": {"small": "mlx-community/Qwen2.5-VL-7B-Instruct-4bit", "large": "mlx-community/Qwen3.6-35B-A3B-4bit"},
 }
-SMALL_RAM_LIMIT = 32 * 1024**3  # below this, auto picks "small"
+BACKENDS = tuple(VLM_MODELS)
 
 
-def total_ram_bytes() -> int:
-    try:
-        return int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip())
-    except Exception:
-        return 0
+class Choice(NamedTuple):
+    backend: str
+    vlm: str
+    asr: str
+    whisper: str
+    size: str
 
 
-def select_models(size=None, model=None, env=None, ram_bytes=None):
-    """Return (vlm_repo, whisper_repo, size_used). No downloads, no model loading."""
+def default_backend(env=None, apple_silicon=None, mlx_installed=None) -> str:
     env = os.environ if env is None else env
+    b = env.get("REEL_WATCHER_BACKEND")
+    if b:
+        return b
+    apple = is_apple_silicon() if apple_silicon is None else apple_silicon
+    if mlx_installed is None:
+        mlx_installed = apple and importlib.util.find_spec("mlx_vlm") is not None
+    return "mlx" if apple and mlx_installed else "ollama"
+
+
+def select_models(size=None, model=None, backend=None, env=None, ram_bytes=None, vram_bytes=None, apple_silicon=None) -> Choice:
+    """No downloads, no model loading."""
+    from .backends.asr import resolve_asr
+
+    env = os.environ if env is None else env
+    apple = is_apple_silicon() if apple_silicon is None else apple_silicon
+    backend = backend or default_backend(env, apple)
+    if backend not in VLM_MODELS:
+        raise ValueError(f"backend must be one of {', '.join(BACKENDS)}, got {backend!r}")
     size = size or env.get("REEL_WATCHER_MODEL") or "auto"
     if size == "auto":
-        ram = total_ram_bytes() if ram_bytes is None else ram_bytes
-        size = "small" if ram < SMALL_RAM_LIMIT else "large"
-    if size not in SIZES:
+        ram = hw.total_ram_bytes() if ram_bytes is None else ram_bytes
+        vram = hw.gpu_vram_bytes() if vram_bytes is None else vram_bytes
+        size = hw.auto_size(ram, vram, apple)
+    if size not in ("small", "large"):
         raise ValueError(f"model size must be small, large or auto, got {size!r}")
-    vlm, whisper = SIZES[size]
-    vlm = model or env.get("REEL_WATCHER_VLM") or vlm
-    whisper = env.get("REEL_WATCHER_WHISPER") or whisper
-    return vlm, whisper, size
+    vlm = model or env.get("REEL_WATCHER_VLM") or VLM_MODELS[backend][size]
+    asr, whisper = resolve_asr(size, env, apple)
+    return Choice(backend, vlm, asr, whisper, size)
 
 
-VISION_MODEL, WHISPER_MODEL, _ = select_models()
+CHOICE: Choice | None = None
 
 
-def configure(size=None, model=None):
+def configure(size=None, model=None, backend=None) -> Choice:
     """Set the module-wide model choice (called once from the CLI before models load)."""
-    global VISION_MODEL, WHISPER_MODEL
-    VISION_MODEL, WHISPER_MODEL, used = select_models(size, model)
-    return used
+    global CHOICE
+    CHOICE = select_models(size, model, backend)
+    return CHOICE
+
+
+def choice() -> Choice:
+    return CHOICE or configure()
+
 
 RETRY_HINT = (
     "\n\nIMPORTANT: output must be short, valid JSON. Keep every text field under 200 characters: "
@@ -67,36 +96,3 @@ def parse_json(text: str):
         return json.loads(text[start: end + 1])
     except json.JSONDecodeError:
         return None
-
-
-class Vision:
-    """Loads the VLM once; `ask(prompt, image_path)` returns parsed JSON (or a parse_error dict)."""
-
-    def __init__(self):
-        from mlx_vlm import load
-        from mlx_vlm.utils import load_config
-
-        self.model, self.processor = load(VISION_MODEL)
-        self.config = load_config(VISION_MODEL)
-
-    def ask(self, prompt, image=None, max_tokens=500):
-        from mlx_vlm import generate
-        from mlx_vlm.prompt_utils import apply_chat_template
-
-        images = [image] if image else []
-        # Second attempt uses a stricter prompt: busy screens can make the model transcribe text until it runs out of tokens.
-        attempts = [(prompt, max_tokens, None), (prompt + RETRY_HINT, max_tokens * 2, 1.15)]
-        out = ""
-        for text, limit, penalty in attempts:
-            formatted = apply_chat_template(
-                self.processor, self.config, text, num_images=len(images), enable_thinking=False
-            )
-            kwargs = {"repetition_penalty": penalty} if penalty else {}
-            out = generate(
-                self.model, self.processor, formatted, image=images or None,
-                max_tokens=limit, temperature=0.0, verbose=False, **kwargs,
-            )
-            parsed = parse_json(getattr(out, "text", out))
-            if parsed is not None:
-                return parsed
-        return {"parse_error": True, "raw": str(getattr(out, "text", out))[:1000]}

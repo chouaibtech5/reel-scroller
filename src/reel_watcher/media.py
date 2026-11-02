@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import urllib.parse
 
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
@@ -12,14 +13,24 @@ SCENE_THRESHOLD = 0.30  # hard cuts on a 320px downscale; few false positives on
 MIN_SHOT_GAP = 0.2  # merge cuts closer than this (flash frames, double triggers)
 
 
-def preflight() -> str:
-    """Empty string when ffmpeg and ffprobe are on PATH, else an install hint."""
+FFMPEG_HINTS = {
+    "win32": "winget install Gyan.FFmpeg  (then open a new terminal)",
+    "darwin": "brew install ffmpeg",
+    "linux": "sudo apt install ffmpeg  (or your distro's package manager)",
+}
+
+
+def preflight(platform: str | None = None) -> str:
+    """Empty string when ffmpeg and ffprobe are on PATH, else an install hint for this OS."""
     missing = [b for b in ("ffmpeg", "ffprobe") if not shutil.which(b)]
-    return f"Missing on PATH: {', '.join(missing)}. Install with: brew install ffmpeg" if missing else ""
+    plat = platform or sys.platform
+    hint = FFMPEG_HINTS.get("linux" if plat.startswith("linux") else plat, FFMPEG_HINTS["linux"])
+    return f"Missing on PATH: {', '.join(missing)}. Install with: {hint}" if missing else ""
 
 
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    # ffmpeg writes UTF-8; Windows' default code page would choke on non-ASCII file names and metadata
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if check and p.returncode != 0:
         raise RuntimeError(f"{cmd[0]} failed ({p.returncode}): {(p.stderr or p.stdout).strip()[-600:]}")
     return p

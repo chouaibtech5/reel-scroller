@@ -56,4 +56,4 @@ def test_no_em_dash_in_repo_sources():
     from pathlib import Path
     bad = chr(0x2014)
     for p in list(Path("src").rglob("*.py")) + list(Path("tests").rglob("*.py")):
-        assert bad not in p.read_text(), p
+        assert bad not in p.read_text(encoding="utf-8"), p
