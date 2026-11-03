@@ -36,6 +36,7 @@ uv run reel-scroller study --input urls.tsv --out-root ./out --run --limit 3
 | `dashboard.py`, `dashboard.html` | Local read-only dashboard server (stdlib `http.server`, 127.0.0.1) and its single page |
 | `scout.py` | Creator watchlist: public profile posts via Apify, outlier ranking, queue picks into `urls.tsv` (dry run by default) |
 | `ideas.py` | Studies to patterns and new reel ideas with a local text model; cites only real study codes |
+| `sources.py` | Free routes: Meta Business Discovery (scouting) and yt-dlp (downloads); never logs in or uses cookies |
 | `ig_export.py` | Instagram data export (saved_posts JSON/HTML) to URL list |
 | `advice_library.py` | Optional renderer: advice library JSON to one static HTML page |
 
@@ -52,9 +53,10 @@ Tests live in `tests/`; they use no network and no models (backends are faked wi
 
 ## Rules
 
-- Never spend money without the user's explicit OK. `--run` calls Apify (about $0.002 per reel). Always
-  show the dry run and the count first, start with `--limit 3`, keep the per-batch cap.
-- `APIFY_TOKEN` is read from the environment only. Never write it to a file, a log, a URL or a commit.
+- Never spend money without the user's explicit OK. With `APIFY_TOKEN` set, `--run` can call Apify (about $0.002
+  per reel). Always show the dry run and the count first, start with `--limit 3`, keep the per-batch cap.
+- `APIFY_TOKEN` and `META_ACCESS_TOKEN` are read from the environment only. Never write them to a file, a log,
+  a URL or a commit (the Meta token goes in an Authorization header).
 - Never log in to Instagram, use browser cookies, or automate the Instagram UI. Reel URLs come from the
   user's official data export (`reel-scroller export`) or a plain URL list.
 - Do not commit media, frames, transcripts or study output. No real reel data in tests or examples.

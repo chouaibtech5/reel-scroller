@@ -430,3 +430,30 @@ def test_decode_audio_uses_ffmpeg_not_pyav(monkeypatch):
     P.returncode, P.stderr = 1, b"clip.mp4: Invalid data found"
     with pytest.raises(RuntimeError, match="Invalid data"):
         asr._decode_audio("clip.mp4")
+
+
+def test_compute_type_matches_what_the_gpu_supports(monkeypatch):
+    import sys
+    fake = types.SimpleNamespace(get_supported_compute_types=lambda d: {"float32", "int8", "int8_float32"})
+    monkeypatch.setitem(sys.modules, "ctranslate2", fake)
+    assert asr._compute_type("cuda") == "int8_float32"  # MX150-class card: no float16
+    fake.get_supported_compute_types = lambda d: {"float32", "float16", "int8_float16"}
+    assert asr._compute_type("cuda") == "float16"
+    assert asr._compute_type("cpu") == "int8"
+
+
+def test_cuda_dll_dirs_registered_on_windows(monkeypatch, tmp_path):
+    import os
+    import sys
+    (tmp_path / "nvidia" / "cublas" / "bin").mkdir(parents=True)
+    (tmp_path / "nvidia" / "cudnn" / "bin").mkdir(parents=True)
+    added = []
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "path", [str(tmp_path), "", str(tmp_path / "missing")])
+    monkeypatch.setattr(os, "add_dll_directory", lambda d: added.append(d), raising=False)
+    monkeypatch.setenv("PATH", "orig")
+    got = asr._add_cuda_dll_dirs()
+    assert [p.replace("\\", "/").split("/")[-2] for p in got] == ["cublas", "cudnn"] and added == got
+    assert os.environ["PATH"].endswith("orig")
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert asr._add_cuda_dll_dirs() == []

@@ -45,6 +45,7 @@ def test_known_codes_and_append_tsv_round_trip(tmp_path):
 
 
 def test_scout_dry_run_spends_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("META_IG_USER_ID", raising=False)
     f = tmp_path / "c.txt"
     f.write_text("a\nb\n", encoding="utf-8")
     monkeypatch.setattr(rs, "apify_fetch", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not call Apify")))
@@ -54,6 +55,7 @@ def test_scout_dry_run_spends_nothing(tmp_path, monkeypatch, capsys):
 
 
 def test_scout_run_queues_outliers(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("META_IG_USER_ID", raising=False)
     f = tmp_path / "c.txt"
     f.write_text("a\n", encoding="utf-8")
     monkeypatch.setenv("APIFY_TOKEN", "TOKEN")

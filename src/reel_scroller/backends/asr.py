@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+from pathlib import Path
 
 from . import _util
 
@@ -78,11 +79,44 @@ def _resolve_device(env: dict | None = None) -> str:
     return dev
 
 
+CUDA_COMPUTE_PREFERENCE = ("float16", "int8_float16", "int8_float32", "int8", "float32")
+
+
+def _compute_type(device: str) -> str:
+    """float16 on modern GPUs; older ones (e.g. Pascal laptops like the MX150) only do int8/float32."""
+    if device != "cuda":
+        return "int8"
+    try:
+        import ctranslate2
+        ok = set(ctranslate2.get_supported_compute_types("cuda"))
+    except Exception:  # noqa: BLE001
+        return "float16"
+    return next((t for t in CUDA_COMPUTE_PREFERENCE if t in ok), "float16")
+
+
+def _add_cuda_dll_dirs() -> list[str]:
+    """Windows: `uv sync --extra cuda` puts cuBLAS/cuDNN DLLs in site-packages/nvidia/*/bin, which Windows does not search."""
+    if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
+        return []
+    added = []
+    for base in sys.path:
+        for d in sorted(Path(base).glob("nvidia/*/bin")) if base and Path(base).is_dir() else []:
+            try:
+                os.add_dll_directory(str(d))
+                os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
+                added.append(str(d))
+            except OSError:
+                pass
+    return added
+
+
 def _get_whisper_model(model: str, device: str):
     if (model, device) in _MODELS:
         return _MODELS[(model, device)]
     from faster_whisper import WhisperModel
-    compute_type = "float16" if device == "cuda" else "int8"
+    if device == "cuda":
+        _add_cuda_dll_dirs()
+    compute_type = _compute_type(device)
     try:
         inst = WhisperModel(model, device=device, compute_type=compute_type)
         _MODELS[(model, device)] = inst

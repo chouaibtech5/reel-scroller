@@ -16,7 +16,17 @@ commands:
 Run `reel-scroller <command> --help` for options."""
 
 
+def utf8_output() -> None:
+    """Captions are full of emoji and non-Latin text; Windows consoles and pipes default to cp1252 and would crash."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    utf8_output()
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(USAGE)
         return 0

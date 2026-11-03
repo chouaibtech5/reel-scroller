@@ -25,7 +25,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from . import live, media
+from . import live, media, sources
 from . import model as _model
 from .backends import asr as _asr
 from .backends import ocr as _ocr
@@ -994,13 +994,64 @@ def prioritize(items: list[dict], terms: list[str], only: bool) -> list[dict]:
     return [i for i in ordered if rank(i) < len(terms)] if only else ordered
 
 
-def producer(todo, q, stop, out_root, work_parent, batch_n, cap_usd, token):
+def prepare_ytdlp_batch(batch: list[dict], work_parent: Path) -> tuple[list[dict], list[tuple[dict, str]]]:
+    """Free route: yt-dlp downloads each reel without logging in. Returns (units, [(item, reason)] it could not get).
+    Carousels (photo slides) are left for Apify: yt-dlp only fetches video."""
+    units, left = [], []
+    for b in batch:
+        if b["kind"] == "carousel":
+            left.append((b, "carousel: photo slides need Apify"))
+            continue
+        work = work_parent / b["code"]
+        try:
+            video, meta = sources.ytdlp_fetch(b["url"], work)
+        except Exception as e:  # noqa: BLE001  (refused, private, removed, timeout)
+            shutil.rmtree(work, ignore_errors=True)
+            left.append((b, str(e)[:240]))
+            log(f"{b['code']}: {str(e)[:160]}")
+            continue
+        live.event(f"{b['code']} downloaded ({video.stat().st_size // 1024} KB)", "yt-dlp")
+        units.append({"item": b, "meta": meta, "work": work, "media": [video]})
+    return units, left
+
+
+def scout_views(out_root: Path) -> dict[str, int]:
+    """View counts that `scout` recorded (from Meta or Apify), latest run wins."""
+    views: dict[str, int] = {}
+    f = out_root / "scout.jsonl"
+    if f.exists():
+        for line in f.read_text(encoding="utf-8").splitlines():
+            try:
+                views.update({r["code"]: r["views"] for r in json.loads(line).get("ranked") or [] if r.get("views")})
+            except (ValueError, KeyError, AttributeError):
+                pass
+    return views
+
+
+def fetch_batch(batch: list[dict], out_root: Path, work_parent: Path, fetcher: str, token: str | None, cap_usd: float) -> list[dict]:
+    """yt-dlp first (free); what it cannot get goes to Apify when a token is set, else becomes a failed unit."""
+    if fetcher == "apify":
+        return prepare_apify_batch(batch, out_root, work_parent, token, cap_usd)
+    units, left = prepare_ytdlp_batch(batch, work_parent)
+    known = scout_views(out_root)
+    for u in units:  # yt-dlp gets no Instagram view counts; scout recorded them
+        if u["meta"].get("views") is None and u["item"]["code"] in known:
+            u["meta"]["views"] = known[u["item"]["code"]]
+    if left and fetcher == "auto" and token:
+        log(f"{len(left)} of {len(batch)} not available through yt-dlp, trying Apify")
+        units += prepare_apify_batch([b for b, _ in left], out_root, work_parent, token, cap_usd)
+    else:
+        units += [{"item": b, "error": f"ytdlp: {why}"} for b, why in left]
+    return units
+
+
+def producer(todo, q, stop, out_root, work_parent, batch_n, cap_usd, token, fetcher="apify"):
     """Download stage. Puts lists of prepared units, then a terminal sentinel."""
     try:
         for i in range(0, len(todo), batch_n):
             if stop.is_set():
                 break
-            q.put(("units", prepare_apify_batch(todo[i:i + batch_n], out_root, work_parent, token, cap_usd)))
+            q.put(("units", fetch_batch(todo[i:i + batch_n], out_root, work_parent, fetcher, token, cap_usd)))
         q.put(("done", None))
     except Exception as e:  # noqa: BLE001  (auth, quota, network): stop and never retry automatically
         q.put(("fatal", f"{type(e).__name__}: {e}"[:500]))
@@ -1025,7 +1076,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--fast", action="store_true", help="fewer frames and tokens")
     ap.add_argument("--detailed", action="store_true", help="one VLM call per frame instead of one contact sheet")
     ap.add_argument("--archive", metavar="DIR", help="keep media, frames and manifest per reel in DIR/<code>/")
-    ap.add_argument("--batch", type=int, default=15, help="Apify batch size")
+    ap.add_argument("--fetcher", choices=["auto", "ytdlp", "apify"], default="auto",
+                    help="how reels are downloaded: auto = free yt-dlp first, Apify only for the rest when APIFY_TOKEN is set (default)")
+    ap.add_argument("--batch", type=int, default=15, help="reels per download batch")
     ap.add_argument("--apify-batch-cap-usd", type=float, default=2.0, help="hard spending cap per Apify batch")
     ap.add_argument("--dash", action="store_true", help="open the live dashboard in your browser while it runs (localhost only)")
     ap.add_argument("--port", type=int, default=8765, help="dashboard port (with --dash)")
@@ -1125,16 +1178,19 @@ def main(argv: list[str] | None = None) -> int:
     if a.limit:
         todo = todo[: a.limit]
     token = apify_token()
-    print(f"{len(every)} urls, {len(todo)} to fetch via Apify")
+    route = {"apify": "Apify (paid)", "ytdlp": "yt-dlp (free)",
+             "auto": "yt-dlp (free), then Apify for the rest" if token else "yt-dlp (free); no APIFY_TOKEN, so no paid fallback"}[a.fetcher]
+    print(f"{len(every)} urls, {len(todo)} to fetch via {route}")
     if not a.run:
         for i in todo:
             print(f"  would fetch [{i['kind']}] {i['code']}  {i['url']}  {'|'.join(i['collections'])}")
-        print("dry run; pass --run to fetch and analyze (Apify is paid, about $0.002 per reel; per-batch cap $%.2f)" % a.apify_batch_cap_usd)
+        cost = (" (Apify is paid, about $0.002 per reel; per-batch cap $%.2f)" % a.apify_batch_cap_usd) if a.fetcher == "apify" or (a.fetcher == "auto" and token) else " (free)"
+        print("dry run; pass --run to fetch and analyze" + cost)
         return 0
     if not todo:
         return 0
-    if not token:
-        print("APIFY_TOKEN is not set. Export it in your shell (never put it in a file in this repo).")
+    if a.fetcher == "apify" and not token:
+        print("APIFY_TOKEN is not set. Export it in your shell (never put it in a file in this repo), or use --fetcher ytdlp (free).")
         return 2
     missing = media.preflight()
     if missing:
@@ -1148,10 +1204,10 @@ def main(argv: list[str] | None = None) -> int:
     except VisionError as e:
         print(e)
         return 3
-    start_live(a, out_root, "apify", len(todo))
+    start_live(a, out_root, a.fetcher, len(todo))
     q: queue.Queue = queue.Queue(maxsize=1)  # bounded: at most ~2 batches of media on disk
     stop = threading.Event()
-    th = threading.Thread(target=producer, daemon=True, args=(todo, q, stop, out_root, work_parent, a.batch, a.apify_batch_cap_usd, token))
+    th = threading.Thread(target=producer, daemon=True, args=(todo, q, stop, out_root, work_parent, a.batch, a.apify_batch_cap_usd, token, a.fetcher))
     th.start()
     n = done_n = 0
     rc = 0

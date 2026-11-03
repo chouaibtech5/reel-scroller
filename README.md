@@ -42,11 +42,14 @@ leaves it.
 
 ## Cost
 
-- Apify (to download the media): about $0.002 per reel with the `apify/instagram-scraper` actor.
+- Everything can run for free: downloads go through yt-dlp and creator scouting through Meta's official API
+  (see "Free sources"). Apify is optional.
+- Apify, only if you set `APIFY_TOKEN`: about $0.002 per reel with the `apify/instagram-scraper` actor, used for
+  what the free routes cannot get (photo carousels, reels Instagram refuses to yt-dlp, personal accounts).
   The tool sends `maxTotalChargeUsd` with every batch (default $2, set with `--apify-batch-cap-usd`)
   and writes the actual cost of each run to `apify_cost.jsonl`. Check current Apify pricing yourself.
 - All analysis (OCR, vision model, whisper) is local and free.
-- Without an `APIFY_TOKEN` nothing is downloaded and nothing is charged. Dry run is the default.
+- Without an `APIFY_TOKEN` nothing is ever charged. Dry run is the default.
 
 ## Install
 
@@ -126,7 +129,8 @@ cat out/study/clip.json
 Get-Content out\study\clip.json
 ```
 
-Set your Apify token (never commit it):
+Optional: set an Apify token as a paid fallback for what the free routes cannot download (never commit it).
+Without it everything stays free:
 
 ```bash
 # Linux / macOS (bash)
@@ -199,7 +203,8 @@ open an issue if Instagram changed it. HTML exports work too. Any text file with
 | `REEL_SCROLLER_WHISPER` | whisper model name or HF repo ID |
 | `REEL_SCROLLER_DEVICE` | compute device for faster-whisper (`auto`, `cuda`, `cpu`) |
 | `REEL_SCROLLER_OCR` | OCR backend (`auto`, `apple`, `rapidocr`, `none`) |
-| `APIFY_TOKEN` | Apify token for downloading media |
+| `APIFY_TOKEN` | Apify token, optional: paid fallback for downloads and scouting |
+| `META_IG_USER_ID`, `META_ACCESS_TOKEN` | Meta Graph API, for free scouting (see Free sources) |
 | `REEL_SCROLLER_CONTEXT` | one phrase describing you (e.g. "a freelance video editor") so the verdict speaks to your goals |
 | `REEL_SCROLLER_WORKFLOW_RE` | regex of collection names whose reels also get a `workflow` field |
 
@@ -210,7 +215,8 @@ newest public reels, finds the ones that beat that creator's usual views (outlie
 what works into new reel ideas for you. It never logs in and never touches the Instagram app.
 
 1. Put one creator per line in a text file (see `examples/creators.txt`).
-2. Scout their newest reels. This is a dry run first; `--run` calls Apify (about $0.002 per post looked at, capped):
+2. Scout their newest reels. This is a dry run first; `--run` fetches. It is free through Meta's API when
+   `META_IG_USER_ID` and `META_ACCESS_TOKEN` are set (see Free sources), otherwise Apify (about $0.002 per post, capped):
 
 ```bash
 uv run reel-scroller scout --creators creators.txt --out-root ./out
@@ -235,6 +241,30 @@ each one. Results go to `out/ideas/latest.json` and the **Ideas** tab of the das
 Ideas reuse the mechanism of what worked, never a creator's topic or wording. Treat them as drafts.
 
 Run it weekly: `scout --run`, then `study --run`, then `ideas`.
+
+## Free sources (no Apify)
+
+**Downloads: yt-dlp.** `study --run` downloads each reel with [yt-dlp](https://github.com/yt-dlp/yt-dlp) (installed by
+`uv sync`) without logging in, then falls back to Apify only for what it could not get, and only if `APIFY_TOKEN`
+is set. Choose with `--fetcher auto|ytdlp|apify` (default `auto`). Instagram sometimes refuses anonymous downloads;
+those reels are logged to `_failed.jsonl` and can be retried later with `--retry-failed`. Photo carousels need Apify.
+yt-dlp does not get Instagram view counts; when `scout` found the reel, its count is used. Keep yt-dlp current with
+`uv lock --upgrade-package yt-dlp && uv sync`.
+
+**Scouting: Meta Business Discovery.** Instagram's official Graph API returns the recent posts of any public
+Business or Creator account, with Reel view counts, for free (about 200 calls per hour; `scout` makes one per creator).
+You need your own professional Instagram account linked to a Facebook Page, a Meta app, and a Page access token:
+
+```bash
+export META_IG_USER_ID=...        # your Instagram account id in the Graph API
+export META_ACCESS_TOKEN=...      # a Page access token; never commit it
+```
+
+(PowerShell: `$env:META_IG_USER_ID = "..."` and `$env:META_ACCESS_TOKEN = "..."`.) With both set, `scout` uses
+Meta and turns to Apify only for accounts Meta cannot see (personal or age-gated), and only with an `APIFY_TOKEN`.
+The token is sent in a request header, never in a URL. Meta's `view_count` includes paid views.
+
+Neither route logs in to Instagram or uses your browser cookies.
 
 ## Dashboard
 

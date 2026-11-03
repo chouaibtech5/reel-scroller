@@ -1,7 +1,8 @@
 """Creator watchlist: fetch the newest public reels of creators you follow, rank each by how far it beat
 that creator's usual views, and add the best ones to <out-root>/urls.tsv for `study`.
 
-No login, no cookies: public profile data through the same Apify actor `study` uses. Dry run by default.
+No login, no cookies: Meta's free Business Discovery API when configured, else the Apify actor `study` uses.
+Dry run by default.
 
   creators.txt   one handle or profile URL per line (# comments allowed)
 """
@@ -13,6 +14,7 @@ import statistics
 import time
 from pathlib import Path
 
+from . import sources
 from . import study as _study
 
 HANDLE_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
@@ -100,6 +102,26 @@ def append_tsv(out_root: Path, picks: list[dict]) -> Path:
     return tsv
 
 
+def meta_scan(creators: list[str], cfg: tuple[str, str], per_creator: int) -> tuple[list[dict], list[str], str | None]:
+    """Business Discovery for each creator. Returns (items, handles Meta cannot see, stop reason if Meta refused)."""
+    items: list[dict] = []
+    unseen: list[str] = []
+    for n, h in enumerate(creators):
+        try:
+            got = sources.meta_discover(h, cfg[0], cfg[1], per_creator)
+        except sources.NotProfessional as e:
+            print(f"  @{h}: {e}")
+            unseen.append(h)
+            continue
+        except sources.MetaRateLimited as e:
+            return items, unseen + creators[n:], str(e)
+        except (sources.MetaError, OSError) as e:
+            return items, unseen + creators[n:], str(e)
+        print(f"  @{h}: {len(got)} posts")
+        items += got
+    return items, unseen, None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="reel-scroller scout",
                                  description="Find your watchlist creators' best new reels and queue them for `study`. Dry run unless --run.")
@@ -109,8 +131,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--top", type=int, default=3, help="queue at most this many reels per creator (default 3, 0 = all)")
     ap.add_argument("--min-outlier", type=float, default=1.5,
                     help="only queue reels with at least this many times the creator's median views (default 1.5, 0 = any)")
-    ap.add_argument("--run", action="store_true", help="call Apify (paid, small) and write the picks to urls.tsv")
-    ap.add_argument("--apify-cap-usd", type=float, default=1.0, help="hard spending cap for this scout run")
+    ap.add_argument("--source", choices=["auto", "meta", "apify"], default="auto",
+                    help="auto = Meta's free API when META_IG_USER_ID and META_ACCESS_TOKEN are set, Apify for accounts it cannot see")
+    ap.add_argument("--run", action="store_true", help="fetch and write the picks to urls.tsv")
+    ap.add_argument("--apify-cap-usd", type=float, default=1.0, help="hard spending cap for Apify in this scout run")
     a = ap.parse_args(argv)
 
     creators = parse_creators(Path(a.creators))
@@ -119,30 +143,53 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     out_root = Path(a.out_root).expanduser()
     (out_root / "study").mkdir(parents=True, exist_ok=True)
-    est = len(creators) * a.per_creator * USD_PER_RESULT
-    print(f"{len(creators)} creators x {a.per_creator} posts = up to {len(creators) * a.per_creator} results, about ${est:.2f} (cap ${a.apify_cap_usd:.2f})")
+    cfg = sources.meta_config()
+    token = _study.apify_token()
+    if a.source == "meta" and not cfg:
+        print("META_IG_USER_ID and META_ACCESS_TOKEN are not set (see README, Free sources).")
+        return 2
+    use_meta = a.source == "meta" or (a.source == "auto" and cfg is not None)
+    if use_meta:
+        print(f"{len(creators)} creators x {a.per_creator} posts through Meta's API: free, about {len(creators)} of your 200 calls per hour"
+              + (", Apify only for accounts Meta cannot see" if token and a.source == "auto" else ""))
+    else:
+        est = len(creators) * a.per_creator * USD_PER_RESULT
+        print(f"{len(creators)} creators x {a.per_creator} posts through Apify = up to {len(creators) * a.per_creator} results, "
+              f"about ${est:.2f} (cap ${a.apify_cap_usd:.2f}). Set META_IG_USER_ID and META_ACCESS_TOKEN to scout for free.")
     if not a.run:
         for h in creators:
             print(f"  would scan @{h}")
-        print("dry run; pass --run to fetch (Apify is paid). Then analyze the picks with: reel-scroller study --input "
+        print("dry run; pass --run to fetch. Then analyze the picks with: reel-scroller study --input "
               f"{out_root / 'urls.tsv'} --run")
         return 0
-    token = _study.apify_token()
-    if not token:
-        print("APIFY_TOKEN is not set. Export it in your shell (never put it in a file in this repo).")
-        return 2
-    try:
-        items, run = _study.apify_fetch([f"https://www.instagram.com/{h}/" for h in creators], token, a.apify_cap_usd,
-                                        results_limit=a.per_creator)
-    except (_study.ApifyError, OSError) as e:
-        print(f"apify failed: {e}")
-        return 4
-    _study.append_jsonl(out_root / "apify_cost.jsonl", {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "scout": len(creators), **run})
+
+    items: list[dict] = []
+    rest = creators
+    if use_meta:
+        items, rest, stopped = meta_scan(creators, cfg, a.per_creator)
+        if stopped:
+            print(f"Meta stopped: {stopped}")
+        if rest and not (token and a.source == "auto"):
+            print(f"skipped {len(rest)} creator(s) Meta could not read: {', '.join('@' + h for h in rest)}")
+            rest = []
+    if rest:
+        if not token:
+            print("APIFY_TOKEN is not set. Export it in your shell (never put it in a file in this repo), or set the Meta variables.")
+            return 2
+        try:
+            got, run = _study.apify_fetch([f"https://www.instagram.com/{h}/" for h in rest], token, a.apify_cap_usd,
+                                          results_limit=a.per_creator)
+        except (_study.ApifyError, OSError) as e:
+            print(f"apify failed: {e}")
+            return 4
+        _study.append_jsonl(out_root / "apify_cost.jsonl", {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "scout": len(rest), **run})
+        print(f"apify: {run['items']} posts for {len(rest)} creator(s), ${run['usd']}")
+        items += got
     ranked = rank(items)
     picks = pick(ranked, known_codes(out_root), a.min_outlier, a.top)
     _study.append_jsonl(out_root / "scout.jsonl", {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "creators": creators,
                                                    "seen": len(ranked), "picked": [p["code"] for p in picks], "ranked": ranked})
-    print(f"apify: {run['items']} posts, ${run['usd']}. {len(ranked)} reels, {len(picks)} new picks:")
+    print(f"{len(ranked)} reels, {len(picks)} new picks:")
     for r in picks:
         ratio = f"{r['outlier']}x" if r["outlier"] else "?"
         print(f"  {ratio:>7}  @{r['creator']:<20} {r['views'] or '?':>9} views  {r['url']}  {r['caption'][:60]}")
