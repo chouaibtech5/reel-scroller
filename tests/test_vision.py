@@ -2,6 +2,7 @@
 import base64
 import io
 import json
+import types
 import urllib.error
 
 import pytest
@@ -70,24 +71,94 @@ def test_ollama_not_running_or_model_missing(monkeypatch):
         v.OllamaVision("qwen2.5vl:7b")
 
 
-def test_openai_compatible(tmp_path, monkeypatch):
+class FakeConn:
+    """Stands in for http.client connections; answers from a shared queue of (status, body) or exceptions."""
+    made: list = []
+
+    def __init__(self, answers, sent):
+        self.answers, self.sent = answers, sent
+
+    def request(self, method, path, body=None, headers=None):
+        self.sent.append({"path": path, "body": json.loads(body), "headers": headers, "conn": id(self)})
+
+    def getresponse(self):
+        a = self.answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        status, payload, *hdrs = a
+        return types.SimpleNamespace(status=status, getheaders=lambda: list((hdrs[0] if hdrs else {}).items()),
+                                     read=lambda: json.dumps(payload).encode())
+
+    def close(self):
+        pass
+
+
+def fake_connections(monkeypatch, *answers):
+    answers, sent, made = list(answers), [], []
+
+    def connect(scheme, host, port, timeout):
+        made.append((scheme, host, port))
+        return FakeConn(answers, sent)
+    monkeypatch.setattr(v, "_connection", connect)
+    return sent, made
+
+
+OK = (200, {"choices": [{"message": {"content": '{"a": 1}'}}]})
+
+
+def test_openai_compatible_reuses_one_connection(tmp_path, monkeypatch):
     img = tmp_path / "f.png"
     img.write_bytes(b"png")
-    http = FakeHTTP({"choices": [{"message": {"content": '{"a": 1}'}}]})
-    monkeypatch.setattr(v.urllib.request, "urlopen", http)
-    out = v.OpenAIVision("local-model", base="http://localhost:8080/v1/", key="k").ask("p", img)
-    assert out == {"a": 1}
-    req = http.requests[0]
-    assert req["url"] == "http://localhost:8080/v1/chat/completions"
-    assert req["headers"].get("Authorization") == "Bearer k"
-    url = req["body"]["messages"][0]["content"][1]["image_url"]["url"]
-    assert url.startswith("data:image/png;base64,")
+    sent, made = fake_connections(monkeypatch, OK, OK)
+    m = v.OpenAIVision("local-model", base="http://localhost:8080/v1/", key="k")
+    assert m.ask("p", img) == {"a": 1} and m.ask("q") == {"a": 1}
+    assert made == [("http", "localhost", 8080)] and sent[0]["conn"] == sent[1]["conn"]  # one connection for the run
+    assert sent[0]["path"] == "/v1/chat/completions" and sent[0]["headers"]["Authorization"] == "Bearer k"
+    assert sent[0]["body"]["messages"][0]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_reconnects_once_when_a_kept_connection_dropped(monkeypatch):
+    sent, made = fake_connections(monkeypatch, ConnectionResetError("closed"), OK)
+    assert v.OpenAIVision("m", base="https://api.example.com/v1", key="k").ask("p") == {"a": 1}
+    assert len(made) == 2 and made[0] == ("https", "api.example.com", None)
 
 
 def test_openai_server_down(monkeypatch):
-    monkeypatch.setattr(v.urllib.request, "urlopen", FakeHTTP(urllib.error.URLError("refused")))
+    fake_connections(monkeypatch, ConnectionRefusedError("refused"), ConnectionRefusedError("refused"))
     with pytest.raises(v.VisionError, match="REEL_SCROLLER_OPENAI_BASE"):
         v.OpenAIVision("m", base="http://localhost:1234/v1", key="").ask("p")
+
+
+def test_rate_limit_waits_then_retries(monkeypatch):
+    waits = []
+    monkeypatch.setattr(v.time, "sleep", waits.append)
+    fake_connections(monkeypatch, (429, {"error": {"message": "quota"}}, {"Retry-After": "7"}), (503, {}), OK)
+    assert v.OpenAIVision("m", base="http://localhost:1/v1", key="").ask("p") == {"a": 1}
+    assert waits == [7.0, 10]
+
+
+def test_rejected_key_and_bad_request_show_the_providers_message(monkeypatch):
+    fake_connections(monkeypatch, (401, [{"error": {"message": "API key not valid"}}]))
+    with pytest.raises(v.VisionError, match="rejected the API key.*API key not valid"):
+        v.OpenAIVision("m", base="http://localhost:1/v1", key="bad").ask("p")
+    fake_connections(monkeypatch, (400, {"error": {"message": "Unknown name frequency_penalty"}}))
+    with pytest.raises(v.VisionError, match="HTTP 400: Unknown name"):
+        v.OpenAIVision("m", base="http://localhost:1/v1", key="").ask("p")
+
+
+def test_gemini_settings(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(v.VisionError, match="GEMINI_API_KEY is not set"):
+        v.make_vision("gemini", "gemini-2.5-flash")
+    monkeypatch.setenv("GEMINI_API_KEY", "G")
+    sent, made = fake_connections(monkeypatch, (200, {"choices": [{"message": {"content": "no json"}}]}), OK)
+    assert v.make_vision("gemini", "gemini-2.5-flash").ask("p", max_tokens=100) == {"a": 1}
+    first, retry = sent[0], sent[1]
+    assert made == [("https", "generativelanguage.googleapis.com", None)] and first["path"] == "/v1beta/openai/chat/completions"
+    assert first["headers"]["Authorization"] == "Bearer G" and "G" not in first["path"]
+    assert first["body"]["reasoning_effort"] == "none" and first["body"]["response_format"] == {"type": "json_object"}
+    assert "frequency_penalty" not in retry["body"] and retry["body"]["max_tokens"] == 200
+    assert v.GeminiVision("gemini-2.5-pro", key="G").extra["reasoning_effort"] == "low"
 
 
 def test_is_local():
@@ -100,3 +171,39 @@ def test_is_local():
 def test_unknown_backend():
     with pytest.raises(ValueError):
         v.make_vision("cloud", "x")
+
+
+DAILY = (429, {"error": {"code": 429, "message": "You exceeded your current quota", "details": [
+    {"violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier", "quotaValue": "20"}]},
+    {"retryDelay": "30438s"}]}})
+
+
+def test_daily_quota_stops_at_once_without_retrying(monkeypatch):
+    waits = []
+    monkeypatch.setattr(v.time, "sleep", waits.append)
+    sent, _ = fake_connections(monkeypatch, DAILY)
+    with pytest.raises(v.VisionQuotaError, match="20 requests a day.*8 h"):
+        v.GeminiVision("gemini-2.5-flash", key="G").ask("p")
+    assert waits == [] and len(sent) == 1
+
+
+def test_per_minute_limit_waits_as_long_as_google_says(monkeypatch):
+    waits = []
+    monkeypatch.setattr(v.time, "sleep", waits.append)
+    fake_connections(monkeypatch, (429, {"error": {"details": [{"retryDelay": "34s"}]}}), OK)
+    assert v.GeminiVision("gemini-3.5-flash-lite", key="G").ask("p") == {"a": 1}
+    assert waits == [34.0]
+
+
+def test_rejected_thinking_setting_is_dropped_once(monkeypatch):
+    sent, _ = fake_connections(monkeypatch, (400, {"error": {"message": "Request contains an invalid argument."}}), OK, OK)
+    m = v.GeminiVision("gemini-9-flash", key="G")
+    assert m.ask("p") == {"a": 1} and m.ask("q") == {"a": 1}
+    assert sent[0]["body"]["reasoning_effort"] == "minimal"
+    assert "reasoning_effort" not in sent[1]["body"] and "reasoning_effort" not in sent[2]["body"]
+
+
+def test_gemini_effort_per_model():
+    assert v.gemini_effort("gemini-2.5-flash") == "none"
+    assert v.gemini_effort("gemini-2.5-pro") == "low"
+    assert v.gemini_effort("gemini-3.5-flash-lite") == "minimal"

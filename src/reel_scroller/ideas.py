@@ -158,7 +158,10 @@ def load_model(backend: str, model: str, temperature: float):
         if "thinking" in m.capabilities():
             m.think = False
         return m
-    return make_vision(backend, model)
+    m = make_vision(backend, model)
+    if hasattr(m, "temperature"):
+        m.temperature = temperature
+    return m
 
 
 def generate(out_root: Path, vision, niche: str, count: int, limit: int, model_name: str) -> dict:
@@ -219,7 +222,11 @@ def main(argv: list[str] | None = None) -> int:
         print(e)
         return 3
     print(f"ideas: {c.backend} {name}, niche: {niche}", flush=True)
-    result = generate(out_root, vision, niche, a.count, a.limit, name)
+    try:
+        result = generate(out_root, vision, niche, a.count, a.limit, name)
+    except VisionError as e:
+        print(f"stopped: {e}")
+        return 6
     path = write(out_root, result)
     for p in result["patterns"]:
         print(f"\n[pattern] {p['name']}: {p.get('what', '')}  ({', '.join(p['evidence']) or 'no source'})")

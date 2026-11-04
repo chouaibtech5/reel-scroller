@@ -24,10 +24,10 @@ uv run reel-scroller study --input urls.tsv --out-root ./out --run --limit 3
 
 | File | Role |
 |---|---|
-| `cli.py` | `reel-scroller study|export|advice|dash|scout|ideas` dispatcher |
+| `cli.py` | `reel-scroller study|export|advice|dash|scout|ideas|auto` dispatcher |
 | `study.py` | The pipeline: Apify fetch, frame sampling, OCR, dedupe, contact-sheet VLM call, whisper, giveaway detection, archive, JSON writing, `main()` |
 | `model.py` | Model-size choice, `parse_json`, `RETRY_HINT`; delegates to `backends/` |
-| `backends/vision.py` | Ollama, OpenAI-compatible and MLX vision backends (`make_vision`) |
+| `backends/vision.py` | Ollama, OpenAI-compatible, MLX and Gemini vision backends (`make_vision`); hosted ones reuse one connection |
 | `backends/asr.py` | `resolve_asr`, `transcribe_words` (faster-whisper, mlx-whisper) |
 | `backends/ocr.py` | `ocr_backend`, `ocr_image` (RapidOCR, Apple Vision) |
 | `backends/hw.py` | RAM and GPU detection |
@@ -37,6 +37,7 @@ uv run reel-scroller study --input urls.tsv --out-root ./out --run --limit 3
 | `scout.py` | Creator watchlist: public profile posts via Apify, outlier ranking, queue picks into `urls.tsv` (dry run by default) |
 | `ideas.py` | Studies to patterns and new reel ideas with a local text model; cites only real study codes |
 | `sources.py` | Free routes: Meta Business Discovery (scouting) and yt-dlp (downloads); never logs in or uses cookies |
+| `auto.py` | One command: scout, study and ideas with the dashboard; free unless `--allow-paid` |
 | `ig_export.py` | Instagram data export (saved_posts JSON/HTML) to URL list |
 | `advice_library.py` | Optional renderer: advice library JSON to one static HTML page |
 
@@ -55,13 +56,14 @@ Tests live in `tests/`; they use no network and no models (backends are faked wi
 
 - Never spend money without the user's explicit OK. With `APIFY_TOKEN` set, `--run` can call Apify (about $0.002
   per reel). Always show the dry run and the count first, start with `--limit 3`, keep the per-batch cap.
-- `APIFY_TOKEN` and `META_ACCESS_TOKEN` are read from the environment only. Never write them to a file, a log,
+- `APIFY_TOKEN`, `META_ACCESS_TOKEN` and `GEMINI_API_KEY` are read from the environment only. Never write them to a file, a log,
   a URL or a commit (the Meta token goes in an Authorization header).
 - Never log in to Instagram, use browser cookies, or automate the Instagram UI. Reel URLs come from the
   user's official data export (`reel-scroller export`) or a plain URL list.
 - Do not commit media, frames, transcripts or study output. No real reel data in tests or examples.
-- Keep analysis local. Do not add a hosted-LLM or paid-API dependency. The `openai` backend is for local
-  OpenAI-compatible servers only.
+- Local by default. Hosted models (`--backend gemini`, or `openai` with a non-local base) are opt-in only, must
+  say that frames and transcripts leave the machine, and must never become a required dependency.
+- A used-up provider quota stops the run without marking reels failed (`VisionQuotaError`); never retry a daily quota.
 - Keep the original author's credit (LICENSE, README) intact.
 - Do not publish or push anything without the owner's approval.
 

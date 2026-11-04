@@ -197,3 +197,23 @@ def test_fetch_batch_fills_views_from_scout(tmp_path, monkeypatch):
     rs.append_jsonl(tmp_path / "scout.jsonl", {"ranked": [{"code": "OK", "views": 754}]})
     units = rs.fetch_batch(batch("OK"), tmp_path, tmp_path / "w", "ytdlp", None, 2.0)
     assert units[0]["meta"]["views"] == 754
+
+
+def test_quota_stops_the_run_without_marking_reels_failed(tmp_path, monkeypatch, capsys):
+    from reel_scroller.backends.vision import VisionQuotaError
+    tsv = tmp_path / "urls.tsv"
+    tsv.write_text("https://www.instagram.com/reel/A1/\nhttps://www.instagram.com/reel/A2/\n", encoding="utf-8")
+    out = tmp_path / "o"
+    monkeypatch.setattr(rs, "load_vision", lambda: object())
+    monkeypatch.setattr(rs.media, "preflight", lambda: "")
+    monkeypatch.setattr(rs, "fetch_batch", lambda b, *a: [{"item": x, "meta": {}, "work": tmp_path / x["code"], "media": []} for x in b])
+    calls = []
+
+    def analyze(vision, unit, out_root):
+        calls.append(unit["item"]["code"])
+        raise VisionQuotaError("gemini: the API quota is used up")
+    monkeypatch.setattr(rs, "analyze_unit", analyze)
+    assert rs.main(["--input", str(tsv), "--out-root", str(out), "--run", "--fetcher", "ytdlp"]) == 6
+    assert calls == ["A1"]  # stopped at the first reel
+    assert not (out / "study" / "_failed.jsonl").exists()  # nothing marked failed, so the next run retries them
+    assert "quota is used up" in capsys.readouterr().out

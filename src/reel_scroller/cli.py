@@ -7,11 +7,12 @@ USAGE = """usage: reel-scroller <command> [options]
 
 commands:
   export   convert an Instagram data export (saved_posts.json) into a URL list
-  study    fetch (Apify) and analyze saved reels locally; --local analyzes mp4 files; dry run by default
+  study    download (free yt-dlp, Apify optional) and analyze reels locally; --local for mp4 files; dry run by default
   advice   render an advice library JSON to a static HTML page (optional)
   dash     local dashboard: watch a run live and browse analyzed reels
   scout    find your watchlist creators' best new reels and queue them for study
   ideas    turn studied reels into patterns and new reel ideas for your niche
+  auto     all of it in one go: scout, study and ideas, with the dashboard open
 
 Run `reel-scroller <command> --help` for options."""
 
@@ -43,6 +44,8 @@ def main() -> int:
         from .scout import main as run
     elif cmd == "ideas":
         from .ideas import main as run
+    elif cmd == "auto":
+        from .auto import main as run
     else:
         print(USAGE)
         return 2

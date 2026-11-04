@@ -1,7 +1,7 @@
 """Model choice and JSON parsing. The backends themselves live in `backends/`.
 
 Choice (highest priority first):
-  --backend / REEL_SCROLLER_BACKEND     ollama | openai | mlx (default: mlx on Apple Silicon when installed, else ollama)
+  --backend / REEL_SCROLLER_BACKEND     ollama | openai | mlx | gemini (default: mlx on Apple Silicon when installed, else ollama)
   --model / REEL_SCROLLER_VLM           exact vision model name for that backend
   --model-size / REEL_SCROLLER_MODEL    small | large | auto
   auto: large with an NVIDIA GPU of 20 GB+ or Apple Silicon with 32 GB+ RAM, else small
@@ -22,6 +22,7 @@ VLM_MODELS = {
     "ollama": {"small": "qwen2.5vl:7b", "large": "qwen2.5vl:32b"},
     "openai": {"small": "qwen2.5-vl-7b-instruct", "large": "qwen2.5-vl-32b-instruct"},
     "mlx": {"small": "mlx-community/Qwen2.5-VL-7B-Instruct-4bit", "large": "mlx-community/Qwen3.6-35B-A3B-4bit"},
+    "gemini": {"small": "gemini-3.5-flash-lite", "large": "gemini-3.5-flash"},  # hosted and opt-in
 }
 BACKENDS = tuple(VLM_MODELS)
 

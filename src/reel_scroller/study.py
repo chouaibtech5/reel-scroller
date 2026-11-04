@@ -29,7 +29,7 @@ from . import live, media, sources
 from . import model as _model
 from .backends import asr as _asr
 from .backends import ocr as _ocr
-from .backends.vision import VisionError, make_vision
+from .backends.vision import VisionError, VisionQuotaError, make_vision
 
 APIFY_ACTOR = os.environ.get("APIFY_ACTOR", "apify~instagram-scraper")
 APIFY_BASE = os.environ.get("APIFY_API_BASE", "https://api.apify.com/v2")
@@ -805,6 +805,8 @@ def analyze_video(vision, video: Path, work: Path, collections: list[str], meta:
                     # whisper finished: its time is not part of the sheet call
                 frecs, overview, turbo_t = turbo_visuals(vision, [p_ for _, p_ in frames], [round(t, 2) for t, _ in frames],
                                                          [f"{t:.1f}s" for t, _ in frames], work, "reel", "timestamp")
+        except VisionQuotaError:
+            raise  # the per-frame path would hit the same quota, many times over
         except Exception as e:  # noqa: BLE001
             log(f"turbo failed ({type(e).__name__}: {e}); falling back to per-frame analysis")
             frecs = None
@@ -882,6 +884,8 @@ def analyze_carousel(vision, slides: list[Path], collections: list[str], meta: d
             with tempfile.TemporaryDirectory() as td:
                 recs, overview, turbo_t = turbo_visuals(vision, slides, list(range(1, len(slides) + 1)),
                                                         [f"slide {i}" for i in range(1, len(slides) + 1)], Path(td), "carousel", "slide number")
+        except VisionQuotaError:
+            raise
         except Exception as e:  # noqa: BLE001
             log(f"turbo failed ({type(e).__name__}: {e}); falling back to per-slide analysis")
             recs = None
@@ -1157,6 +1161,10 @@ def main(argv: list[str] | None = None) -> int:
                     if ARCHIVE:
                         rec["archive"] = str(archive_commit(ARCHIVE, item, {}, rec, work, [src], keep_source=True))
                     finalize(out_root, item, {}, rec, key, time.time() - t0)
+                except VisionQuotaError as e:
+                    print(f"stopped: {e}")
+                    live.item_failed(code, str(e))
+                    return 6
                 except Exception as e:
                     live.item_failed(code, f"{type(e).__name__}: {e}")
                     raise
@@ -1226,6 +1234,11 @@ def main(argv: list[str] | None = None) -> int:
                         continue
                     try:
                         secs = analyze_unit(vision, unit, out_root)
+                    except VisionQuotaError as e:  # not this reel's fault: stop, and do not mark it failed
+                        print(f"[{n}/{len(todo)}] stopped: {e}", flush=True)
+                        live.event(f"stopped: {e}", "error")
+                        rc = 6
+                        break
                     except Exception as e:  # one bad reel must not end an overnight run
                         append_jsonl(study / "_failed.jsonl", {"code": item["code"], "url": item["url"],
                                                                "error": f"{type(e).__name__}: {e}"[:300],
@@ -1235,6 +1248,8 @@ def main(argv: list[str] | None = None) -> int:
                         continue
                     done_n += 1
                     print(f"[{n}/{len(todo)}] {item['code']} analyzed in {secs:.0f}s", flush=True)
+                if rc == 6:
+                    break
                 continue
             if kind == "fatal":
                 (out_root / "FATAL").write_text(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {payload}\n", encoding="utf-8")

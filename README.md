@@ -180,7 +180,7 @@ open an issue if Instagram changed it. HTML exports work too. Any text file with
 | `--local A.mp4 B.mp4` | Analyze local files: no Apify, no cost |
 | `--archive DIR` | Keep video, frames and manifest per reel in `DIR/<code>/` |
 | `--collections a,b` and `--only-priority` | Do reels from matching collections first (or only) |
-| `--backend ollama\|openai\|mlx` | Vision backend (default mlx on Apple Silicon if available, else ollama) |
+| `--backend ollama\|openai\|mlx\|gemini` | Vision backend (default mlx on Apple Silicon if available, else ollama) |
 | `--model-size small\|large` | Model preset (default auto by hardware, see Hardware) |
 | `--model ID` | Exact vision model name, overrides the preset |
 | `--fast` | Fewer frames and tokens |
@@ -205,6 +205,7 @@ open an issue if Instagram changed it. HTML exports work too. Any text file with
 | `REEL_SCROLLER_OCR` | OCR backend (`auto`, `apple`, `rapidocr`, `none`) |
 | `APIFY_TOKEN` | Apify token, optional: paid fallback for downloads and scouting |
 | `META_IG_USER_ID`, `META_ACCESS_TOKEN` | Meta Graph API, for free scouting (see Free sources) |
+| `GEMINI_API_KEY` | Google Gemini, for `--backend gemini` (see Backends) |
 | `REEL_SCROLLER_CONTEXT` | one phrase describing you (e.g. "a freelance video editor") so the verdict speaks to your goals |
 | `REEL_SCROLLER_WORKFLOW_RE` | regex of collection names whose reels also get a `workflow` field |
 
@@ -241,6 +242,19 @@ each one. Results go to `out/ideas/latest.json` and the **Ideas** tab of the das
 Ideas reuse the mechanism of what worked, never a creator's topic or wording. Treat them as drafts.
 
 Run it weekly: `scout --run`, then `study --run`, then `ideas`.
+
+## One command: auto
+
+Everything above in one go, with the dashboard open: scout your watchlist, study the best new reels, write ideas.
+
+```bash
+uv run reel-scroller auto --creators creators.txt --out-root ./out --backend gemini --niche "a creator who makes reels about AI tools"
+```
+
+It never spends money unless you pass `--allow-paid`: scouting needs the Meta variables (see Free sources) and
+downloads go through yt-dlp. Measured with Gemini on a laptop: 2 creators scouted, 2 reels studied and 6 ideas
+written in 2.6 minutes. Options: `--top`, `--min-outlier`, `--per-creator`, `--count`, `--limit`, `--model`,
+`--ideas-model`, `--no-dash`.
 
 ## Free sources (no Apify)
 
@@ -292,16 +306,30 @@ and is never needed afterwards.
 
 ## Backends
 
-reel-scroller supports three vision backends:
+reel-scroller supports four vision backends. Speech to text and OCR always run on your machine.
 
 - **Ollama** (default on Windows and Linux): runs locally via `http://localhost:11434`. Pull `qwen2.5vl:7b` (or `qwen2.5vl:32b`).
-- **OpenAI-compatible local server**: works with LM Studio, llama.cpp server, vLLM, or LocalAI. Start your local server and run:
+- **Gemini** (opt-in, hosted): Google's API with your `GEMINI_API_KEY`. Much faster on a machine without a big GPU
+  (measured on a laptop CPU: 13 minutes per reel locally, about 1 minute with Gemini) and more accurate than the
+  small local model. **Frames and transcripts are sent to Google.**
+  ```bash
+  export GEMINI_API_KEY=...        # from https://aistudio.google.com/apikey; never commit it
+  uv run reel-scroller study --backend gemini --input urls.tsv --out-root ./out --run
+  ```
+  The default model is `gemini-3.5-flash-lite` (`--model-size large` uses `gemini-3.5-flash`; any model works with
+  `--model`). Free tiers have per-model daily limits (one key allowed only 20 requests a day for `gemini-2.5-flash`;
+  a reel uses 2). When a daily quota is used up, the run stops with the reset time and the reels stay queued for next
+  time. Per-minute limits are waited out automatically.
+- **OpenAI-compatible server**: LM Studio, llama.cpp server, vLLM or LocalAI locally, or a hosted provider you choose:
   ```bash
   export REEL_SCROLLER_OPENAI_BASE="http://localhost:1234/v1"
   uv run reel-scroller study --backend openai --model "<model-name>" --input urls.tsv --out-root ./out
   ```
-  Set `REEL_SCROLLER_OPENAI_KEY` if your server requires an authorization header. This backend is intended strictly for local servers; do not use it with paid hosted APIs.
+  Set `REEL_SCROLLER_OPENAI_KEY` if the server needs a key. A non-local address prints a note that data leaves your machine.
 - **MLX** (Apple Silicon only): runs natively using Apple's MLX framework when installed with `uv sync --extra mac`.
+
+Hosted backends keep one connection open for the whole run: on some networks opening a connection takes far longer
+than the request itself.
 
 ## Output: one study (`out/study/<code>.json`)
 
