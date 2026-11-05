@@ -1,7 +1,7 @@
 [project]
 name = "reel-scroller"
 version = "0.2.0"
-description = "Have a local AI model watch the Instagram reels you saved and write structured notes. Windows, Linux and macOS; analysis is local."
+description = "Have an AI model watch Instagram reels for you and turn them into structured notes and new reel ideas. Local by default, Gemini optional. Windows, Linux and macOS."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Jacob Bruce" }, { name = "Chouaib" }]

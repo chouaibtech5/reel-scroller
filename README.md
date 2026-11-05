@@ -5,22 +5,57 @@ The original was made by Jacob Bruce ([Instagram](https://www.instagram.com/itsj
 Ported to Windows and Linux by Chouaib.
 
 You save reels on Instagram and never go back to them. reel-scroller has an AI
-model on your own machine watch them for you and write down what each one is: the
-hook, the format, the on-screen text, the transcript, the editing tricks, any
-"comment WORD and I'll send you X" giveaway, and a one-line verdict on why it
-works. You end up with one searchable JSON file per reel.
+model watch them for you and write down what each one is: the hook, the format,
+the on-screen text, the transcript, the editing tricks, any "comment WORD and I'll
+send you X" giveaway, and a one-line verdict on why it works. You end up with one
+searchable JSON file per reel, a live dashboard, and new reel ideas for your niche.
 
-Everything except the media download runs on your machine. No analysis data
-leaves it.
+By default everything runs on your machine with a local model. For speed you can
+switch the vision model to Google Gemini with an API key (see "Fast mode" below).
+
+## Fast mode: Gemini and one command
+
+A local vision model needs a strong GPU. On a laptop CPU one reel took 13 minutes.
+With Google Gemini it took about 1 minute, and the answers were more accurate:
+
+```bash
+export GEMINI_API_KEY=...          # free key: https://aistudio.google.com/apikey (PowerShell: $env:GEMINI_API_KEY = "...")
+uv run reel-scroller auto --creators creators.txt --out-root ./out --backend gemini --niche "a creator who makes reels about AI tools"
+```
+
+That one command scouts your creators' best new reels, downloads them, studies them,
+writes ideas and keeps the dashboard open. Measured: 2 creators, 2 reels and 6 ideas
+in 2.6 minutes.
+
+| | Local model (laptop CPU) | Gemini (`--backend gemini`) |
+|---|---|---|
+| One reel | about 13 min | about 1 min |
+| Cost | free | free tier, then a few cents per reel |
+| Privacy | nothing leaves your machine | frames and transcripts are sent to Google |
+
+Free Gemini keys have small per-model daily limits (one key allowed 20 requests a day
+on `gemini-2.5-flash`; a reel uses 2). When the quota runs out the run stops, says when
+it resets, and keeps the reels queued. Details in "Backends" and "One command: auto".
+
+## What this port adds
+
+- Windows and Linux support (the original needed an Apple Silicon Mac).
+- Free sources: downloads through yt-dlp and creator scouting through Meta's official API,
+  so Apify is optional.
+- A creator watchlist (`scout`) that finds each creator's outlier reels.
+- `ideas`: patterns from your strongest reels turned into new reel ideas for your niche.
+- A live dashboard with Live, Library and Ideas tabs (`--dash` or `reel-scroller dash`).
+- Optional Gemini backend and the one-command `auto` routine.
 
 ## What it does per reel
 
-1. Fetches the video (or carousel slides) through Apify, the only network step.
+1. Downloads the video for free with yt-dlp (Apify optional, for carousels and refused reels).
 2. Cuts the video into key frames (hook frames plus one frame after each scene cut).
 3. Reads on-screen text with RapidOCR (Apple Vision on a Mac).
-4. Merges near-duplicate frames, then asks a local vision model through Ollama,
-   any OpenAI-compatible local server (LM Studio, llama.cpp, vLLM), or MLX on a Mac
-   about all the unique frames at once, using one labeled contact sheet (this is the speed trick).
+4. Merges near-duplicate frames, then asks a vision model about all the unique frames at
+   once, using one labeled contact sheet (this is the speed trick). Local through Ollama,
+   an OpenAI-compatible server (LM Studio, llama.cpp, vLLM) or MLX on a Mac, or hosted
+   through Gemini.
 5. Transcribes speech with word timing (faster-whisper, or mlx-whisper on a Mac).
 6. Detects giveaways: "comment X", "DM me X", "link in bio", and what you get.
 7. Writes `study/<code>.json` and a small hook image. With `--archive DIR` it also
